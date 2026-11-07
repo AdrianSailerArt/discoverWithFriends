@@ -1,0 +1,24 @@
+{
+  "name": "tripboard",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "maplibre-gl": "^6.16.0",
+    "nuxt": "^4.6.4",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9",
+    "vue-tsc": "^3.3.14"
+  }
+}
