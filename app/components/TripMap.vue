@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import * as maplibregl from 'maplibre-gl'
+// MapLibre looks for its worker next to its own module file, which doesn't exist once it is
+// bundled (production). Ship the self-contained worker as an asset and point MapLibre at it.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { FeatureCollection, LineString } from 'geojson'
 import type { PlanResult } from '#shared/plan'
 import { CATEGORIES, dayColor } from '~/lib/constants'
@@ -35,6 +38,7 @@ let nightMarkers: maplibregl.Marker[] = []
 const markers = new Map<string, { marker: maplibregl.Marker; el: HTMLDivElement; emoji: HTMLSpanElement; score: HTMLSpanElement }>()
 
 onMounted(() => {
+  if (maplibregl.getWorkerUrl() !== workerUrl) maplibregl.setWorkerUrl(workerUrl)
   map = new maplibregl.Map({
     container: container.value!,
     style: mapStyle(cfg.maptilerKey),
