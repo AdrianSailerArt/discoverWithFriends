@@ -23,7 +23,7 @@ Ohne Keys läuft die App im **Demo-Modus** (ohne Login): Alles liegt im `localSt
 2. **Authentication → Sign In / Providers:** „Email“ aktiv lassen, „Allow anonymous sign-ins“ **aus**.
    Unter **Authentication → URL Configuration** die Site URL (lokal `http://localhost:3000`) setzen und
    `http://localhost:3000/**` als Redirect URL eintragen, damit Bestätigungslinks zurück in die App (z. B. in eine Einladung) führen.
-3. Die Dateien in `supabase/migrations/` der Reihe nach im **SQL Editor** ausführen (`0001_init.sql`, `0002_grants.sql`, `0003_routes.sql`).
+3. Die Dateien in `supabase/migrations/` der Reihe nach im **SQL Editor** ausführen (`0001_init.sql` bis `0004_registered_only.sql`).
 4. `.env.example` nach `.env` kopieren und eintragen:
    - `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY` (Project Settings → API)
    - optional `NUXT_PUBLIC_MAPTILER_KEY` (schönere Outdoor-Karte + bessere Ortssuche; sonst OSM/Nominatim)
