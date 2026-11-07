@@ -1,5 +1,5 @@
 import { memberColor } from './constants'
-import type { Backend, Idea, Member, Trip, TripRoute, Vote } from './types'
+import type { Backend, Expense, Idea, Member, Trip, TripRoute, Vote } from './types'
 
 /**
  * Demo backend that keeps everything in localStorage.
@@ -13,13 +13,14 @@ interface Db {
   ideas: Idea[]
   votes: Vote[]
   routes: TripRoute[]
+  expenses: Expense[]
 }
 
 const DB_KEY = 'tripboard:demo-db'
 const USER_KEY = 'tripboard:demo-user'
 const LOCAL_EVENT = 'tripboard:demo-change'
 
-const empty = (): Db => ({ trips: [], members: [], ideas: [], votes: [], routes: [] })
+const empty = (): Db => ({ trips: [], members: [], ideas: [], votes: [], routes: [], expenses: [] })
 
 function read(): Db {
   try {
@@ -120,12 +121,45 @@ export function createLocalBackend(): Backend {
       db.ideas = db.ideas.filter((i) => i.trip_id !== tripId)
       db.votes = db.votes.filter((v) => v.trip_id !== tripId)
       db.routes = db.routes.filter((r) => r.trip_id !== tripId)
+      db.expenses = db.expenses.filter((e) => e.trip_id !== tripId)
       write(db)
     },
 
     async leaveTrip(tripId) {
       const db = read()
       db.members = db.members.filter((m) => !(m.trip_id === tripId && m.user_id === uid()))
+      write(db)
+    },
+
+    async saveExpense(tripId, input, id) {
+      const db = read()
+      if (!isMember(db, tripId)) throw new Error('Kein Mitglied dieser Reise.')
+      const memberIds = new Set(db.members.filter((m) => m.trip_id === tripId).map((m) => m.user_id))
+      if (!memberIds.has(input.paid_by) || !input.participants.length || input.participants.some((p) => !memberIds.has(p))) {
+        throw new Error('Zahler und Beteiligte müssen Mitglieder der Reise sein.')
+      }
+      if (id) {
+        const e = db.expenses.find((x) => x.id === id)
+        if (!e) throw new Error('Ausgabe nicht gefunden.')
+        Object.assign(e, input, { participants: [...new Set(input.participants)] })
+      } else {
+        id = crypto.randomUUID()
+        db.expenses.push({ ...input, participants: [...new Set(input.participants)], id, trip_id: tripId, created_by: uid(), created_at: now() })
+      }
+      write(db)
+      return id
+    },
+
+    async deleteExpense(id) {
+      const db = read()
+      db.expenses = db.expenses.filter((e) => e.id !== id)
+      write(db)
+    },
+
+    async setTripCurrency(tripId, currency) {
+      const db = read()
+      const t = db.trips.find((x) => x.id === tripId)
+      if (t) t.currency = currency
       write(db)
     },
 
@@ -187,6 +221,7 @@ export function createLocalBackend(): Backend {
         ideas: db.ideas.filter((i) => i.trip_id === tripId),
         votes: db.votes.filter((v) => v.trip_id === tripId),
         route: db.routes.find((r) => r.trip_id === tripId) ?? null,
+        expenses: db.expenses.filter((e) => e.trip_id === tripId),
       }
     },
 

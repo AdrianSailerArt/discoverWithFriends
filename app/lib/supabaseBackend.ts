@@ -1,5 +1,11 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AuthUser, Backend, Idea, Member, Trip, TripPreview, TripRoute, Vote } from './types'
+import type { AuthUser, Backend, Expense, Idea, Member, Trip, TripPreview, TripRoute, Vote } from './types'
+
+function withParticipants(rows: Omit<Expense, 'participants'>[], parts: { expense_id: string; user_id: string }[]): Expense[] {
+  const byExpense = new Map<string, string[]>()
+  for (const p of parts) byExpense.set(p.expense_id, [...(byExpense.get(p.expense_id) ?? []), p.user_id])
+  return rows.map((e) => ({ ...e, participants: byExpense.get(e.id) ?? [] }))
+}
 
 function toAuthUser(u: User | null | undefined): AuthUser | null {
   // Anonymous sessions (from earlier versions) don't count as signed in.
@@ -116,6 +122,30 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       check(await sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId))
     },
 
+    async saveExpense(tripId, input, id) {
+      return check(
+        await sb.rpc('save_expense', {
+          p_id: id,
+          p_trip: tripId,
+          p_title: input.title,
+          p_amount_cents: input.amount_cents,
+          p_category: input.category,
+          p_kind: input.kind,
+          p_paid_by: input.paid_by,
+          p_spent_on: input.spent_on,
+          p_participants: input.participants,
+        }),
+      ) as string
+    },
+
+    async deleteExpense(id) {
+      check(await sb.from('expenses').delete().eq('id', id))
+    },
+
+    async setTripCurrency(tripId, currency) {
+      check(await sb.from('trips').update({ currency }).eq('id', tripId))
+    },
+
     async saveRoute(tripId, params, plan) {
       check(
         await sb
@@ -152,7 +182,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     },
 
     async loadTrip(tripId) {
-      const [trip, members, ideas, votes, route] = await Promise.all([
+      const [trip, members, ideas, votes, route, expenses, participants] = await Promise.all([
         sb.from('trips').select('*').eq('id', tripId).maybeSingle(),
         sb.from('trip_members').select('*').eq('trip_id', tripId).order('joined_at'),
         sb
@@ -161,6 +191,8 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
           .eq('trip_id', tripId),
         sb.from('votes').select('idea_id,trip_id,user_id,value').eq('trip_id', tripId),
         sb.from('trip_routes').select('*').eq('trip_id', tripId).maybeSingle(),
+        sb.from('expenses').select('*').eq('trip_id', tripId).order('spent_on', { ascending: false }).order('created_at', { ascending: false }),
+        sb.from('expense_participants').select('expense_id,user_id').eq('trip_id', tripId),
       ])
       const t = check(trip) as Trip | null
       if (!t) return null
@@ -171,6 +203,8 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
         votes: check(votes) as Vote[],
         // tolerate a missing trip_routes table (migration 0003 not run yet)
         route: route.error ? null : (route.data as TripRoute | null),
+        // tolerate missing expense tables (migration 0005 not run yet)
+        expenses: expenses.error || participants.error ? null : withParticipants(expenses.data as Omit<Expense, 'participants'>[], participants.data as { expense_id: string; user_id: string }[]),
       }
     },
 
@@ -207,7 +241,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     subscribe(tripId, onChange) {
       const filter = `trip_id=eq.${tripId}`
       const channel = sb.channel(`trip:${tripId}`)
-      for (const table of ['ideas', 'votes', 'trip_members', 'trip_routes']) {
+      for (const table of ['ideas', 'votes', 'trip_members', 'trip_routes', 'expenses', 'expense_participants']) {
         channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter }, onChange)
         channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter }, onChange)
         // DELETE events cannot be filtered by column; refetch on any delete.

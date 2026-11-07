@@ -15,9 +15,31 @@ export interface Trip {
   center_lat: number
   zoom: number
   invite_code: string
+  /** ISO 4217, e.g. EUR – all expenses of a trip use this currency (migration 0005) */
+  currency?: string
   created_by: string
   created_at: string
 }
+
+export type ExpenseCategory = 'stay' | 'food' | 'transport' | 'tickets' | 'activity' | 'shopping' | 'other'
+
+export interface Expense {
+  id: string
+  trip_id: string
+  title: string
+  amount_cents: number
+  category: ExpenseCategory
+  /** expense = shared cost; transfer = settlement payment from paid_by to the single participant */
+  kind: 'expense' | 'transfer'
+  paid_by: string
+  spent_on: string
+  created_by: string
+  created_at: string
+  /** user ids sharing this expense (equal split) */
+  participants: string[]
+}
+
+export type ExpenseInput = Pick<Expense, 'title' | 'amount_cents' | 'category' | 'kind' | 'paid_by' | 'spent_on' | 'participants'>
 
 export interface Member {
   trip_id: string
@@ -63,6 +85,8 @@ export interface TripData {
   ideas: Idea[]
   votes: Vote[]
   route: TripRoute | null
+  /** null = expenses not available (migration 0005 missing) */
+  expenses: Expense[] | null
 }
 
 /** Trip as shown on the dashboard */
@@ -121,6 +145,11 @@ export interface Backend {
   /** Members (not owner) */
   leaveTrip(tripId: string): Promise<void>
   saveRoute(tripId: string, params: RouteParams, plan: PlanResult): Promise<void>
+  /** Create (id null) or update an expense incl. participants. Returns the id. */
+  saveExpense(tripId: string, input: ExpenseInput, id: string | null): Promise<string>
+  deleteExpense(id: string): Promise<void>
+  /** Owner only */
+  setTripCurrency(tripId: string, currency: string): Promise<void>
   previewInvite(code: string): Promise<TripPreview | null>
   joinTrip(code: string, displayName: string): Promise<string>
   loadTrip(tripId: string): Promise<TripData | null>

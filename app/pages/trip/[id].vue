@@ -16,7 +16,7 @@ const mapRef = ref<{
 }>()
 
 // Sidebar tab
-const tab = ref<'ideas' | 'route'>('ideas')
+const tab = ref<'ideas' | 'route' | 'costs'>('ideas')
 watch(tab, async (t) => {
   if (t === 'route') {
     await nextTick()
@@ -30,7 +30,7 @@ async function onRouteSaved() {
 }
 
 // --- mobile: one full-screen view at a time (map / ideas / route) ------------
-type MobileView = 'map' | 'ideas' | 'route'
+type MobileView = 'map' | 'ideas' | 'route' | 'costs'
 const isMobile = ref(false)
 const mobileView = ref<MobileView>('map')
 let mq: MediaQueryList | null = null
@@ -370,7 +370,15 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
             :class="{ active: tab === 'route' }"
             @click="tab = 'route'"
           >
-            🗺️ Route <span v-if="data.route" class="muted">{{ data.route.plan.days.length }} Tage</span>
+            🗺️ Route <span v-if="data.route" class="muted">{{ data.route.plan.days.length }} T</span>
+          </button>
+          <button
+            role="tab"
+            :aria-selected="tab === 'costs'"
+            :class="{ active: tab === 'costs' }"
+            @click="tab = 'costs'"
+          >
+            💶 Kosten
           </button>
         </nav>
 
@@ -397,6 +405,15 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           :members-by-id="membersById"
           @saved="onRouteSaved"
           @focus="(lng, lat) => showOnMap(lng, lat, 10)"
+        />
+
+        <!-- Costs -->
+        <ExpensesPanel
+          v-else-if="tab === 'costs'"
+          :data="data"
+          :members-by-id="membersById"
+          :my-id="userId"
+          @saved="reload"
         />
 
         <!-- Detail -->
@@ -502,6 +519,9 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
       <button :class="{ active: mobileView === 'route' }" :aria-pressed="mobileView === 'route'" @click="showView('route')">
         <span class="mnav-icon">🧭</span>Route<small v-if="data.route">{{ data.route.plan.days.length }} T</small>
       </button>
+      <button :class="{ active: mobileView === 'costs' }" :aria-pressed="mobileView === 'costs'" @click="showView('costs')">
+        <span class="mnav-icon">💶</span>Kosten
+      </button>
     </nav>
   </div>
 </template>
@@ -601,7 +621,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 }
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   border: 1px solid var(--line);
 }
 .tabs button {
@@ -765,7 +785,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 }
 .mnav {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   background: var(--bg);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);

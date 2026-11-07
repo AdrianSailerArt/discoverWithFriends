@@ -23,7 +23,7 @@ Ohne Keys läuft die App im **Demo-Modus** (ohne Login): Alles liegt im `localSt
 2. **Authentication → Sign In / Providers:** „Email“ aktiv lassen, „Allow anonymous sign-ins“ **aus**.
    Unter **Authentication → URL Configuration** die Site URL (lokal `http://localhost:3000`) setzen und
    `http://localhost:3000/**` als Redirect URL eintragen, damit Bestätigungslinks zurück in die App (z. B. in eine Einladung) führen.
-3. Die Dateien in `supabase/migrations/` der Reihe nach im **SQL Editor** ausführen (`0001_init.sql` bis `0004_registered_only.sql`).
+3. Die Dateien in `supabase/migrations/` der Reihe nach im **SQL Editor** ausführen (`0001_init.sql` bis `0005_expenses.sql`).
 4. `.env.example` nach `.env` kopieren und eintragen:
    - `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY` (Project Settings → API)
    - optional `NUXT_PUBLIC_MAPTILER_KEY` (schönere Outdoor-Karte + bessere Ortssuche; sonst OSM/Nominatim)
@@ -70,6 +70,7 @@ Unterkünfte kommen aus OpenStreetMap (Overpass API), dazu Such-Links zu Booking
 | `ideas` | Pins: Titel, Kategorie, Notiz, Link, Dauer, `lng/lat` + PostGIS-`location` |
 | `votes` | 👎 −1 · 👍 1 · ❤️ 2 (Must-do) pro Person und Idee |
 | `trip_routes` | Zuletzt berechnete Route pro Reise (Parameter + Ergebnis als JSON) |
+| `expenses` / `expense_participants` | Ausgaben (wer hat bezahlt) und wer jeweils beteiligt war; gleichmäßige Aufteilung, „transfer“ = Ausgleichszahlung |
 
 Zugriff ist per Row Level Security auf Mitglieder einer Reise beschränkt. Anlegen und Beitreten laufen über
 die RPCs `create_trip`, `trip_preview` und `join_trip`.
@@ -92,5 +93,6 @@ supabase/migrations SQL-Schema
 - [x] v2: Routenplaner (Reihenfolge, Tagesetappen, Fahrzeiten via OpenRouteService) + Unterkünfte aus OSM mit Buchungslinks
 - [x] Route von Hand anpassen (Stopps verschieben, Ruhetage), Übernachtungsort mit den meisten Unterkünften in der Nähe
 - [ ] Gemischter Verkehr: Etappen-Verkehrsmittel, Links zu ScotRail/Traveline (Fähren deckt OpenRouteService mit Key ab)
+- [x] Kosten teilen: Ausgaben mit Beteiligten, Salden, Ausgleich, Auswertung mit Apache ECharts
 - [ ] Wanderungen als Linien / GPX-Upload
 - [ ] Richtige Accounts (anonyme Nutzer per E-Mail verknüpfen), Datenschutz, Englisch
