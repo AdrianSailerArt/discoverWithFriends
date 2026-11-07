@@ -66,6 +66,18 @@ function toggle(value: VoteValue) {
 .vote:hover {
   background: var(--surface-2);
 }
+@media (pointer: coarse) {
+  .votes {
+    gap: 6px;
+  }
+  .vote {
+    min-height: 36px;
+    min-width: 44px;
+    justify-content: center;
+    padding: 4px 10px;
+    font-size: 0.95rem;
+  }
+}
 .vote.active {
   border-color: var(--accent);
   background: var(--accent-soft);

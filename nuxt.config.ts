@@ -31,7 +31,9 @@ export default defineNuxtConfig({
       title: 'Tripboard',
       htmlAttrs: { lang: 'de' },
       meta: [
-        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        { name: 'theme-color', content: '#e4e4e4', media: '(prefers-color-scheme: light)' },
+        { name: 'theme-color', content: '#1a1a1a', media: '(prefers-color-scheme: dark)' },
         { name: 'description', content: 'Reiseideen gemeinsam auf der Karte sammeln und zu einer Tour machen.' },
       ],
     },

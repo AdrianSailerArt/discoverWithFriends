@@ -782,6 +782,12 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
   background: var(--surface);
   cursor: pointer;
 }
+@media (pointer: coarse) {
+  .icon {
+    width: 40px;
+    height: 40px;
+  }
+}
 .icon:disabled {
   opacity: 0.4;
   cursor: default;

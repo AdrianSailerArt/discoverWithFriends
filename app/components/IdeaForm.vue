@@ -91,6 +91,12 @@ const hours = computed({
   width: 0;
   pointer-events: none;
 }
+/* mobile: the page shows its own "change location on map" button */
+@media (max-width: 800px) {
+  .form > .notice {
+    display: none;
+  }
+}
 .cat:has(input:focus-visible) {
   outline: 2px solid var(--accent);
 }

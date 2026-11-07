@@ -29,6 +29,30 @@ async function onRouteSaved() {
   mapRef.value?.fitRoute()
 }
 
+// --- mobile: one full-screen view at a time (map / ideas / route) ------------
+type MobileView = 'map' | 'ideas' | 'route'
+const isMobile = ref(false)
+const mobileView = ref<MobileView>('map')
+let mq: MediaQueryList | null = null
+const onMediaChange = (e: { matches: boolean }) => (isMobile.value = e.matches)
+onMounted(() => {
+  mq = matchMedia('(max-width: 800px)')
+  onMediaChange(mq)
+  mq.addEventListener('change', onMediaChange)
+})
+onBeforeUnmount(() => mq?.removeEventListener('change', onMediaChange))
+
+function showView(v: MobileView) {
+  mobileView.value = v
+  if (v !== 'map') tab.value = v
+}
+/** Fly to a spot; on mobile switch to the map first. */
+async function showOnMap(lng: number, lat: number, zoom?: number) {
+  if (isMobile.value) mobileView.value = 'map'
+  await nextTick()
+  mapRef.value?.flyTo(lng, lat, zoom)
+}
+
 useHead(() => ({ title: data.value ? `${data.value.trip.name} · Tripboard` : 'Tripboard' }))
 
 // --- derived data ---------------------------------------------------------
@@ -106,6 +130,7 @@ function startAdd() {
   draft.value = null
   formError.value = null
   awaitingPick.value = true
+  if (isMobile.value) mobileView.value = 'map'
 }
 
 function onPick(pos: { lng: number; lat: number }) {
@@ -116,6 +141,8 @@ function onPick(pos: { lng: number; lat: number }) {
     draft.value = emptyDraft(pos.lng, pos.lat)
     awaitingPick.value = false
   }
+  // mobile: back to the form once the spot is set
+  if (isMobile.value) mobileView.value = 'ideas'
 }
 
 function onPlace(p: Place) {
@@ -132,6 +159,7 @@ function onPlace(p: Place) {
     draft.value = emptyDraft(p.lng, p.lat, p.name)
     awaitingPick.value = false
   }
+  if (isMobile.value) mobileView.value = 'ideas'
 }
 
 function startEdit(idea: Idea) {
@@ -195,7 +223,8 @@ async function vote(ideaId: string, value: VoteValue | null) {
 function select(id: string) {
   if (draft.value) return
   awaitingPick.value = false
-  tab.value = 'ideas'
+  // mobile: a tapped pin shows a small card on the map; the route stays visible
+  if (!isMobile.value) tab.value = 'ideas'
   selectedId.value = id
   const idea = ideas.value.find((i) => i.id === id)
   if (idea) mapRef.value?.flyTo(idea.lng, idea.lat)
@@ -245,7 +274,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
     </div>
   </div>
 
-  <div v-else class="trip">
+  <div v-else class="trip" :class="isMobile ? `mobile m-${mobileView}` : ''">
     <header class="top">
       <NuxtLink to="/" class="home" aria-label="Alle Reisen">🧭</NuxtLink>
       <div class="title">
@@ -256,12 +285,19 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
         </span>
       </div>
       <div class="people">
-        <span v-for="m in members" :key="m.user_id" class="person" :title="m.role === 'owner' ? 'Organisator:in' : ''">
+        <span
+          v-for="m in members"
+          :key="m.user_id"
+          class="person"
+          :title="`${m.display_name}${m.role === 'owner' ? ' (Organisator:in)' : ''}`"
+        >
           <span class="dot" :style="{ background: m.color }" />
-          {{ m.display_name }}<template v-if="m.user_id === userId"> (du)</template>
+          <span class="person-name">{{ m.display_name }}<template v-if="m.user_id === userId"> (du)</template></span>
         </span>
       </div>
-      <button class="btn small" @click="copyInvite">{{ copied ? '✓ Kopiert' : '🔗 Einladen' }}</button>
+      <button class="btn small invite" :aria-label="copied ? 'Link kopiert' : 'Einladungslink kopieren'" @click="copyInvite">
+        {{ copied ? '✓' : '🔗' }}<span class="invite-label">{{ copied ? ' Kopiert' : ' Einladen' }}</span>
+      </button>
       <select v-if="backend.demo" class="demo" :value="userId" aria-label="Demo: Person wechseln" @change="switchPerson">
         <option v-for="m in members" :key="m.user_id" :value="m.user_id">Demo: als {{ m.display_name }}</option>
         <option value="__new">Demo: neue Person…</option>
@@ -288,8 +324,33 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
         />
         <PlaceSearch :near="() => mapRef?.getCenter()" @choose="onPlace" />
         <div v-if="awaitingPick" class="pick-hint card">
-          Klick auf die Karte, um deine Idee zu platzieren – oder such oben nach einem Ort.
+          {{ isMobile ? 'Tippe' : 'Klick' }} auf die Karte, um deine Idee zu platzieren – oder such oben nach einem Ort.
           <button class="btn small" @click="awaitingPick = false">Abbrechen</button>
+        </div>
+        <div v-else-if="isMobile && draft" class="pick-hint card">
+          Tippe auf die Karte, um den Ort zu ändern.
+          <button class="btn small" @click="mobileView = 'ideas'">Zurück</button>
+        </div>
+
+        <!-- mobile: tapped pin -->
+        <div v-else-if="isMobile && selected" class="mini card">
+          <div class="mini-head">
+            <strong>{{ CATEGORIES[selected.category].emoji }} {{ selected.title }}</strong>
+            <button class="close" aria-label="Schließen" @click="selectedId = null">✕</button>
+          </div>
+          <span class="muted by row">
+            <span class="dot" :style="{ background: authorColor(selected) }" /> {{ authorName(selected) }}
+            <template v-if="selected.duration_min"> · {{ formatHours(selected.duration_min) }}</template>
+          </span>
+          <div class="mini-foot">
+            <VoteBar
+              :votes="votesByIdea[selected.id] ?? []"
+              :members-by-id="membersById"
+              :my-id="userId"
+              @vote="(v) => vote(selected!.id, v)"
+            />
+            <button class="btn small" @click="showView('ideas')">Details</button>
+          </div>
         </div>
       </section>
 
@@ -314,6 +375,9 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
         </nav>
 
         <!-- Form -->
+        <button v-if="isMobile && draft" class="btn small relocate" @click="mobileView = 'map'">
+          📍 Ort auf der Karte ändern
+        </button>
         <IdeaForm
           v-if="draft"
           v-model:draft="draft"
@@ -332,7 +396,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           :votes-by-idea="votesByIdea"
           :members-by-id="membersById"
           @saved="onRouteSaved"
-          @focus="(lng, lat) => mapRef?.flyTo(lng, lat, 10)"
+          @focus="(lng, lat) => showOnMap(lng, lat, 10)"
         />
 
         <!-- Detail -->
@@ -364,6 +428,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
             >
           </p>
           <div class="row">
+            <button v-if="isMobile" class="btn small" @click="showOnMap(selected.lng, selected.lat, 11)">🗺️ Auf Karte zeigen</button>
             <button v-if="selected.created_by === userId" class="btn small" @click="startEdit(selected)">Bearbeiten</button>
             <button v-if="canDelete(selected)" class="btn small danger" @click="remove(selected)">Löschen</button>
           </div>
@@ -425,6 +490,19 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
         </template>
       </aside>
     </div>
+
+    <!-- mobile bottom navigation -->
+    <nav v-if="isMobile" class="mnav" aria-label="Ansicht">
+      <button :class="{ active: mobileView === 'map' }" :aria-pressed="mobileView === 'map'" @click="showView('map')">
+        <span class="mnav-icon">🗺️</span>Karte
+      </button>
+      <button :class="{ active: mobileView === 'ideas' }" :aria-pressed="mobileView === 'ideas'" @click="showView('ideas')">
+        <span class="mnav-icon">💡</span>Ideen <small>{{ ideas.length }}</small>
+      </button>
+      <button :class="{ active: mobileView === 'route' }" :aria-pressed="mobileView === 'route'" @click="showView('route')">
+        <span class="mnav-icon">🧭</span>Route<small v-if="data.route">{{ data.route.plan.days.length }} T</small>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -648,24 +726,165 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
   word-break: break-all;
 }
 
+/* --- mobile: header + one full-screen view + bottom navigation ----------------- */
+.mini {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 14px;
+  z-index: 3;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+.mini-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 8px;
+}
+.mini-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.close {
+  border: 0;
+  background: none;
+  font-size: 1.1rem;
+  min-width: 36px;
+  min-height: 36px;
+  margin: -8px -8px 0 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+.relocate {
+  align-self: flex-start;
+}
+.mnav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 6;
+}
+.mnav button {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 6px 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.mnav button small {
+  font-weight: 500;
+  opacity: 0.8;
+}
+.mnav-icon {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.mnav button.active {
+  color: var(--accent);
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
 @media (max-width: 800px) {
-  .body {
-    flex-direction: column;
+  .trip {
+    height: 100dvh;
   }
-  .map-wrap {
-    flex: none;
-    height: 55vh;
+  .top {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 8px 12px;
+    padding-top: max(8px, env(safe-area-inset-top));
   }
-  .side {
-    width: auto;
-    border-left: 0;
-    border-top: 1px solid var(--border);
+  .title {
     flex: 1;
+  }
+  .title h1 {
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .title span {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .people {
     margin-left: 0;
-    width: 100%;
-    order: 5;
+    gap: 0;
+    flex-wrap: nowrap;
+  }
+  .person {
+    margin-left: -3px;
+  }
+  .person .dot {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid var(--bg);
+  }
+  .person-name,
+  .invite-label,
+  .demo {
+    display: none;
+  }
+  .invite {
+    min-width: 2.25rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .body {
+    position: relative;
+  }
+  .map-wrap {
+    position: absolute;
+    inset: 0;
+  }
+  .side {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    border-left: 0;
+    padding: 14px 14px 24px;
+    z-index: 4;
+  }
+  /* map view: panel hidden; ideas/route view: panel covers the map */
+  .m-map .side {
+    display: none;
+  }
+  .tabs {
+    display: none;
+  }
+  .pick-hint {
+    bottom: 14px;
+    left: 10px;
+    right: 10px;
+    transform: none;
+    width: auto;
+    max-width: none;
+    justify-content: space-between;
+  }
+  .chip {
+    padding: 8px 0;
+    font-size: 1.05rem;
+  }
+  .item {
+    padding: 12px;
+  }
+  .check input {
+    width: 18px;
+    height: 18px;
   }
 }
 </style>
