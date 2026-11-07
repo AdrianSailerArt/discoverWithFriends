@@ -6,8 +6,9 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { FeatureCollection, LineString } from 'geojson'
 import type { PlanResult } from '#shared/plan'
 import { CATEGORIES, dayColor } from '~/lib/constants'
-import { mapStyle } from '~/lib/geo'
-import type { Idea, Member } from '~/lib/types'
+import { mapStyle, reverseGeocode } from '~/lib/geo'
+import { toPoi, type MapPoi } from '~/lib/poi'
+import type { Category, Idea, Member } from '~/lib/types'
 
 const props = defineProps<{
   ideas: Idea[]
@@ -26,6 +27,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string]
   pick: [pos: { lng: number; lat: number }]
+  /** user wants to add a map feature / place as an idea */
+  suggest: [place: { name: string; lng: number; lat: number; category: Category }]
 }>()
 
 const container = ref<HTMLDivElement>()
@@ -50,6 +53,19 @@ onMounted(() => {
   map.addControl(new maplibregl.ScaleControl({}), 'bottom-left')
   map.on('click', (e) => {
     if (props.picking) emit('pick', { lng: e.lngLat.lng, lat: e.lngLat.lat })
+    else void identify(e.point, e.lngLat)
+  })
+  // pointer cursor over named map features (peaks, museums, …)
+  let hoverFrame = 0
+  map.on('mousemove', (e) => {
+    cancelAnimationFrame(hoverFrame)
+    hoverFrame = requestAnimationFrame(() => {
+      if (!map || props.picking) return
+      map.getCanvas().style.cursor = poisAt(e.point, e.lngLat).length ? 'pointer' : ''
+    })
+  })
+  map.on('moveend', () => {
+    if (discoverOpen.value) refreshDiscover()
   })
   map.on('load', () => {
     styleReady = true
@@ -61,6 +77,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  popup?.remove()
   map?.remove()
   map = null
   markers.clear()
@@ -173,6 +190,103 @@ function syncRoute() {
   }
 }
 
+// --- "What is this?" -----------------------------------------------------------
+let popup: maplibregl.Popup | null = null
+
+function poisAt(point: maplibregl.Point, lngLat: maplibregl.LngLat): MapPoi[] {
+  if (!map) return []
+  const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+    [point.x - 8, point.y - 8],
+    [point.x + 8, point.y + 8],
+  ]
+  return map
+    .queryRenderedFeatures(box)
+    .map((f) => toPoi(f, lngLat))
+    .filter((p): p is MapPoi => !!p)
+    .sort((a, b) => b.rank - a.rank)
+}
+
+function showPopup(lng: number, lat: number, title: string, kind: string, suggestion: Parameters<typeof addSuggestion>[0] | null) {
+  if (!map) return
+  popup?.remove()
+  const el = document.createElement('div')
+  el.className = 'poi-popup'
+  const h = document.createElement('strong')
+  h.textContent = title
+  const k = document.createElement('span')
+  k.className = 'poi-kind'
+  k.textContent = kind
+  el.append(h, k)
+  if (suggestion) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'btn small primary'
+    btn.textContent = '+ Als Idee hinzufügen'
+    btn.addEventListener('click', () => addSuggestion(suggestion))
+    el.append(btn)
+  }
+  popup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 10 }).setLngLat([lng, lat]).setDOMContent(el).addTo(map)
+}
+
+function addSuggestion(s: { name: string; lng: number; lat: number; category: Category }) {
+  popup?.remove()
+  emit('suggest', s)
+}
+
+async function identify(point: maplibregl.Point, lngLat: maplibregl.LngLat) {
+  const poi = poisAt(point, lngLat)[0]
+  if (poi) {
+    showPopup(poi.lng, poi.lat, poi.name, poi.kind, poi)
+    return
+  }
+  // nothing labelled here: ask the geocoder what this place is
+  showPopup(lngLat.lng, lngLat.lat, 'Was ist hier?', 'Wird ermittelt…', null)
+  const here = await reverseGeocode(lngLat.lng, lngLat.lat, cfg.maptilerKey).catch(() => null)
+  if (!popup || !popup.isOpen()) return
+  const name = here?.name ?? 'Markierter Ort'
+  showPopup(lngLat.lng, lngLat.lat, name, here?.label ?? `${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}`, {
+    name,
+    lng: lngLat.lng,
+    lat: lngLat.lat,
+    category: 'sight',
+  })
+}
+
+// --- "Sehenswertes hier": interesting labelled features in the current view ------------
+const discoverOpen = ref(false)
+const discovered = ref<MapPoi[]>([])
+
+function refreshDiscover() {
+  if (!map) return
+  const c = map.getCenter()
+  const seen = new Set<string>()
+  discovered.value = map
+    .queryRenderedFeatures()
+    .map((f) => toPoi(f, c))
+    .filter((p): p is MapPoi => !!p && p.rank >= 4)
+    .filter((p) => {
+      const key = p.name.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => b.rank - a.rank || dist(a, c) - dist(b, c))
+    .slice(0, 25)
+}
+const dist = (p: { lng: number; lat: number }, c: { lng: number; lat: number }) => (p.lng - c.lng) ** 2 + (p.lat - c.lat) ** 2
+
+function toggleDiscover() {
+  discoverOpen.value = !discoverOpen.value
+  if (discoverOpen.value) refreshDiscover()
+}
+
+function focusPoi(p: MapPoi) {
+  map?.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 12) })
+  showPopup(p.lng, p.lat, p.name, p.kind, p)
+}
+
+const hasVectorMap = computed(() => !!cfg.maptilerKey)
+
 function syncCursor() {
   if (map) map.getCanvas().style.cursor = props.picking ? 'crosshair' : ''
 }
@@ -204,12 +318,123 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="container" class="map" />
+  <div class="map-root">
+    <div ref="container" class="map" />
+    <button
+      v-if="hasVectorMap && !picking"
+      type="button"
+      class="btn small discover-btn"
+      :aria-expanded="discoverOpen"
+      @click="toggleDiscover"
+    >
+      ✨ Sehenswertes hier
+    </button>
+    <div v-if="discoverOpen && !picking" class="discover card">
+      <div class="discover-head">
+        <strong>Im Kartenausschnitt</strong>
+        <button type="button" class="close" aria-label="Schließen" @click="discoverOpen = false">✕</button>
+      </div>
+      <p v-if="!discovered.length" class="muted small">
+        Hier ist nichts Besonderes beschriftet. Zoom näher heran oder verschieb die Karte.
+      </p>
+      <ul>
+        <li v-for="p in discovered" :key="`${p.name}-${p.lng}`">
+          <button type="button" class="poi" @click="focusPoi(p)">
+            <span class="poi-name">{{ p.name }}</span>
+            <span class="muted small">{{ p.kind }}</span>
+          </button>
+          <button type="button" class="add" :aria-label="`${p.name} als Idee hinzufügen`" title="Als Idee hinzufügen" @click="addSuggestion(p)">+</button>
+        </li>
+      </ul>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.map-root,
 .map {
   position: absolute;
   inset: 0;
+}
+.discover-btn {
+  position: absolute;
+  top: 58px;
+  left: 10px;
+  z-index: 3;
+  background: var(--surface);
+  transform: none;
+}
+.discover {
+  position: absolute;
+  top: 100px;
+  left: 10px;
+  z-index: 3;
+  width: min(340px, calc(100% - 66px));
+  max-height: min(60%, 420px);
+  overflow: auto;
+  padding: 10px 12px;
+}
+.discover::after {
+  display: none;
+}
+.discover-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.discover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.discover li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+}
+.poi {
+  flex: 1;
+  display: grid;
+  text-align: left;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  min-width: 0;
+}
+.poi-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add,
+.close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.add {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.close {
+  border: 0;
+  background: none;
+  font-size: 1rem;
+}
+.small {
+  font-size: 0.8rem;
 }
 </style>

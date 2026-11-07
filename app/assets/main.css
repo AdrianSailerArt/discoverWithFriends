@@ -390,6 +390,43 @@ label {
   white-space: nowrap;
 }
 
+/* "What is this?" popup on the map */
+.maplibregl-popup-content {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--line) !important;
+  border-bottom-color: var(--line) !important;
+}
+.maplibregl-popup-close-button {
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.poi-popup {
+  display: grid;
+  gap: 4px;
+  font-family: var(--font);
+  padding-right: 18px;
+}
+.poi-popup strong {
+  font-size: 0.95rem;
+}
+.poi-kind {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.poi-popup .btn {
+  margin-top: 6px;
+  justify-self: start;
+}
+
 .maplibregl-ctrl-group {
   border-radius: var(--radius) !important;
   border: 1px solid #000;

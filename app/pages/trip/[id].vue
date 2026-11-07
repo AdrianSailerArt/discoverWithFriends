@@ -162,6 +162,12 @@ function onPlace(p: Place) {
   if (isMobile.value) mobileView.value = 'ideas'
 }
 
+/** "+ Als Idee hinzufügen" from the map popup or the "Sehenswertes hier" list */
+function onSuggest(p: { name: string; lng: number; lat: number; category: Category }) {
+  onPlace({ name: p.name, label: p.name, lng: p.lng, lat: p.lat })
+  if (draft.value && !editId.value) draft.value.category = p.category
+}
+
 function startEdit(idea: Idea) {
   editId.value = idea.id
   formError.value = null
@@ -321,6 +327,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           :show-route="tab === 'route'"
           @select="select"
           @pick="onPick"
+          @suggest="onSuggest"
         />
         <PlaceSearch :near="() => mapRef?.getCenter()" @choose="onPlace" />
         <div v-if="awaitingPick" class="pick-hint card">

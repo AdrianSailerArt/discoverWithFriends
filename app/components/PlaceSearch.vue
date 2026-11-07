@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { searchPlaces, type Place } from '~/lib/geo'
+import { isShortMapLink, parseLocationInput, reverseGeocode, searchPlaces, type Place } from '~/lib/geo'
 
 const props = defineProps<{ near?: () => { lng: number; lat: number } | undefined }>()
 const emit = defineEmits<{ choose: [place: Place] }>()
@@ -11,12 +11,36 @@ const searching = ref(false)
 const error = ref<string | null>(null)
 const open = ref(false)
 
+const backend = useBackend()
+
+/** Pasted map links / coordinates → exact spot; otherwise a normal place search. */
+async function resolve(input: string): Promise<Place[]> {
+  let text = input.trim()
+  if (isShortMapLink(text)) {
+    const res = await $fetch<{ url: string }>('/api/resolve-link', {
+      query: { url: text },
+      headers: await backend.authHeaders(),
+    })
+    text = res.url
+  }
+  const parsed = parseLocationInput(text)
+  if (parsed?.lat != null && parsed.lng != null) {
+    const { lat, lng } = parsed
+    if (parsed.name) return [{ name: parsed.name, label: `${parsed.name} · aus dem Link übernommen`, lng, lat }]
+    const here = await reverseGeocode(lng, lat, cfg.maptilerKey).catch(() => null)
+    return [{ name: here?.name ?? 'Markierter Ort', label: here?.label ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lng, lat }]
+  }
+  if (parsed?.name) return searchPlaces(parsed.name, cfg.maptilerKey, props.near?.())
+  if (/^https?:\/\//i.test(text)) throw new Error('Diesen Link kann ich nicht lesen. Unterstützt: Google Maps, Apple Maps, OpenStreetMap.')
+  return searchPlaces(text, cfg.maptilerKey, props.near?.())
+}
+
 async function search() {
   if (!query.value.trim()) return
   searching.value = true
   error.value = null
   try {
-    results.value = await searchPlaces(query.value, cfg.maptilerKey, props.near?.())
+    results.value = await resolve(query.value)
     open.value = true
   } catch (e) {
     error.value = errorMessage(e)
@@ -36,7 +60,12 @@ function choose(p: Place) {
 <template>
   <div class="search">
     <form class="bar" @submit.prevent="search">
-      <input v-model="query" type="search" placeholder="Ort suchen, z. B. Old Man of Storr" aria-label="Ort suchen" />
+      <input
+        v-model="query"
+        type="search"
+        placeholder="Ort suchen oder Google-Maps-Link einfügen"
+        aria-label="Ort suchen oder Kartenlink einfügen"
+      />
       <button class="btn" :disabled="searching">{{ searching ? '…' : 'Suchen' }}</button>
     </form>
     <div v-if="open || error" class="results card">
