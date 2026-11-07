@@ -23,9 +23,13 @@ export const MEMBER_COLORS = ['#e4572e', '#2e86ab', '#76b041', '#a23b72', '#f1a2
 export const memberColor = (n: number) => MEMBER_COLORS[n % MEMBER_COLORS.length]!
 
 export const REGIONS = [
-  { name: 'Schottland', lng: -4.5, lat: 57.2, zoom: 6 },
-  { name: 'Irland', lng: -8.0, lat: 53.4, zoom: 6.3 },
-  { name: 'Norwegen', lng: 8.5, lat: 61.5, zoom: 5 },
-  { name: 'Island', lng: -19.0, lat: 64.9, zoom: 5.8 },
-  { name: 'Alpen', lng: 10.5, lat: 46.8, zoom: 6.3 },
+  { name: 'Schottland', lng: -4.5, lat: 57.2, zoom: 6, start: { label: 'Edinburgh Airport', lng: -3.3615, lat: 55.9508 } },
+  { name: 'Irland', lng: -8.0, lat: 53.4, zoom: 6.3, start: { label: 'Dublin Airport', lng: -6.2499, lat: 53.4264 } },
+  { name: 'Norwegen', lng: 8.5, lat: 61.5, zoom: 5, start: { label: 'Oslo Gardermoen', lng: 11.1004, lat: 60.1976 } },
+  { name: 'Island', lng: -19.0, lat: 64.9, zoom: 5.8, start: { label: 'Keflavík Airport', lng: -22.6056, lat: 63.985 } },
+  { name: 'Alpen', lng: 10.5, lat: 46.8, zoom: 6.3, start: { label: 'Flughafen München', lng: 11.786, lat: 48.3538 } },
 ]
+
+/** Colours for route days on the map and in the day list */
+export const DAY_COLORS = ['#2f6f4f', '#2e86ab', '#a23b72', '#d98e04', '#6c4ab6', '#e4572e', '#17a398', '#c44569']
+export const dayColor = (day: number) => DAY_COLORS[(day - 1) % DAY_COLORS.length]!

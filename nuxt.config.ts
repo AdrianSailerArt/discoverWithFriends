@@ -11,11 +11,15 @@ export default defineNuxtConfig({
     optimizeDeps: { exclude: ['maplibre-gl'] },
   },
   runtimeConfig: {
+    // Server-only: OpenRouteService (NUXT_ORS_API_KEY). Without it, travel times are estimated.
+    orsApiKey: '',
     public: {
       // Set via NUXT_PUBLIC_SUPABASE_URL etc. in .env (see .env.example)
       supabaseUrl: '',
       supabaseAnonKey: '',
       maptilerKey: '',
+      // Comma-separated social logins shown on /login (must be enabled in Supabase)
+      authProviders: 'google',
     },
   },
   app: {

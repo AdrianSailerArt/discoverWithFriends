@@ -1,5 +1,4 @@
 <script setup lang="ts">
-const userId = useUserId()
 const initError = useInitError()
 </script>
 
@@ -11,7 +10,7 @@ const initError = useInitError()
       <p class="error">{{ initError }}</p>
     </div>
   </main>
-  <NuxtPage v-else-if="userId" :page-key="(route) => route.fullPath" />
+  <NuxtPage v-else :page-key="(route) => route.fullPath" />
 </template>
 
 <style scoped>

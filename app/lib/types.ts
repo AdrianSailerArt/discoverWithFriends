@@ -1,4 +1,6 @@
-export type Category = 'sight' | 'hike' | 'nature' | 'food' | 'activity' | 'stay'
+import type { PlanResult, RouteParams } from '#shared/plan'
+
+export type Category ='sight' | 'hike' | 'nature' | 'food' | 'activity' | 'stay'
 
 /** -1 = eher nicht, 1 = gefällt mir, 2 = Must-do */
 export type VoteValue = -1 | 1 | 2
@@ -47,11 +49,27 @@ export interface Vote {
   value: VoteValue
 }
 
+export interface TripRoute {
+  trip_id: string
+  params: RouteParams
+  plan: PlanResult
+  created_by: string
+  created_at: string
+}
+
 export interface TripData {
   trip: Trip
   members: Member[]
   ideas: Idea[]
   votes: Vote[]
+  route: TripRoute | null
+}
+
+/** Trip as shown on the dashboard */
+export interface TripSummary extends Trip {
+  members: Member[]
+  idea_count: number
+  has_route: boolean
 }
 
 export interface NewTrip {
@@ -73,12 +91,36 @@ export interface TripPreview {
   region: string | null
 }
 
+export type OAuthProvider = 'apple' | 'google' | 'github'
+
+export interface AuthUser {
+  id: string
+  email: string | null
+  name: string | null
+}
+
 export interface Backend {
   mode: 'supabase' | 'local'
-  /** Ensures a (possibly anonymous) user exists and returns its id. */
-  init(): Promise<string>
-  listMyTrips(): Promise<Trip[]>
+  /** true = users must register / sign in before using the app */
+  requiresAuth: boolean
+  /** Restores the session (if any) and returns the current user. */
+  init(): Promise<AuthUser | null>
+  onAuthChange(cb: (user: AuthUser | null) => void): void
+  signUp(email: string, password: string, displayName: string, redirectPath: string): Promise<{ needsConfirmation: boolean }>
+  signIn(email: string, password: string): Promise<void>
+  /** Redirects to the provider; returns to `redirectPath` afterwards. */
+  signInWithProvider(provider: OAuthProvider, redirectPath: string): Promise<void>
+  signOut(): Promise<void>
+  /** Headers for calls to our own server API (e.g. route planner). */
+  authHeaders(): Promise<Record<string, string>>
+  /** All trips the user is a member of (own + shared). */
+  listMyTrips(): Promise<TripSummary[]>
   createTrip(input: NewTrip): Promise<Trip>
+  /** Owner only */
+  deleteTrip(tripId: string): Promise<void>
+  /** Members (not owner) */
+  leaveTrip(tripId: string): Promise<void>
+  saveRoute(tripId: string, params: RouteParams, plan: PlanResult): Promise<void>
   previewInvite(code: string): Promise<TripPreview | null>
   joinTrip(code: string, displayName: string): Promise<string>
   loadTrip(tripId: string): Promise<TripData | null>

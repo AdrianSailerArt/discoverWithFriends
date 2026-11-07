@@ -9,7 +9,25 @@ const backend = useBackend()
 const userId = useUserId()
 const { data, loading, error, reload } = useTripData(tripId)
 
-const mapRef = ref<{ flyTo(lng: number, lat: number, zoom?: number): void; getCenter(): { lng: number; lat: number } | undefined }>()
+const mapRef = ref<{
+  flyTo(lng: number, lat: number, zoom?: number): void
+  getCenter(): { lng: number; lat: number } | undefined
+  fitRoute(): void
+}>()
+
+// Sidebar tab
+const tab = ref<'ideas' | 'route'>('ideas')
+watch(tab, async (t) => {
+  if (t === 'route') {
+    await nextTick()
+    mapRef.value?.fitRoute()
+  }
+})
+async function onRouteSaved() {
+  await reload()
+  await nextTick()
+  mapRef.value?.fitRoute()
+}
 
 useHead(() => ({ title: data.value ? `${data.value.trip.name} · Tripboard` : 'Tripboard' }))
 
@@ -82,6 +100,7 @@ const emptyDraft = (lng: number, lat: number, title = ''): IdeaInput => ({
 })
 
 function startAdd() {
+  tab.value = 'ideas'
   selectedId.value = null
   editId.value = null
   draft.value = null
@@ -106,6 +125,7 @@ function onPlace(p: Place) {
     draft.value.lat = p.lat
     if (!draft.value.title) draft.value.title = p.name
   } else {
+    tab.value = 'ideas'
     selectedId.value = null
     editId.value = null
     formError.value = null
@@ -175,6 +195,7 @@ async function vote(ideaId: string, value: VoteValue | null) {
 function select(id: string) {
   if (draft.value) return
   awaitingPick.value = false
+  tab.value = 'ideas'
   selectedId.value = id
   const idea = ideas.value.find((i) => i.id === id)
   if (idea) mapRef.value?.flyTo(idea.lng, idea.lat)
@@ -260,6 +281,8 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           :draft="draft"
           :center="[data.trip.center_lng, data.trip.center_lat]"
           :zoom="data.trip.zoom"
+          :route="data.route?.plan ?? null"
+          :show-route="tab === 'route'"
           @select="select"
           @pick="onPick"
         />
@@ -271,6 +294,25 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
       </section>
 
       <aside class="side">
+        <nav v-if="!draft" class="tabs" role="tablist">
+          <button
+            role="tab"
+            :aria-selected="tab === 'ideas'"
+            :class="{ active: tab === 'ideas' }"
+            @click="tab = 'ideas'"
+          >
+            💡 Ideen <span class="muted">{{ ideas.length }}</span>
+          </button>
+          <button
+            role="tab"
+            :aria-selected="tab === 'route'"
+            :class="{ active: tab === 'route' }"
+            @click="tab = 'route'"
+          >
+            🗺️ Route <span v-if="data.route" class="muted">{{ data.route.plan.days.length }} Tage</span>
+          </button>
+        </nav>
+
         <!-- Form -->
         <IdeaForm
           v-if="draft"
@@ -280,6 +322,17 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           :error="formError"
           @save="save"
           @cancel="cancelForm"
+        />
+
+        <!-- Route -->
+        <RoutePanel
+          v-else-if="tab === 'route'"
+          :data="data"
+          :scores="scores"
+          :votes-by-idea="votesByIdea"
+          :members-by-id="membersById"
+          @saved="onRouteSaved"
+          @focus="(lng, lat) => mapRef?.flyTo(lng, lat, 10)"
         />
 
         <!-- Detail -->
@@ -465,6 +518,31 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 }
 .add {
   width: 100%;
+}
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 3px;
+}
+.tabs button {
+  border: 0;
+  background: none;
+  padding: 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 500;
+}
+.tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.tabs .muted {
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 .filters {
   display: grid;

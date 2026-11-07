@@ -8,7 +8,7 @@ const backend = useBackend()
 const preview = ref<TripPreview | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
-const name = ref('')
+const name = ref(useAuthUser().value?.name ?? '')
 const joining = ref(false)
 
 onMounted(async () => {

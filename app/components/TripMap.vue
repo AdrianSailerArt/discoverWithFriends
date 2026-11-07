@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import * as maplibregl from 'maplibre-gl'
-import { CATEGORIES } from '~/lib/constants'
+import type { FeatureCollection, LineString } from 'geojson'
+import type { PlanResult } from '#shared/plan'
+import { CATEGORIES, dayColor } from '~/lib/constants'
 import { mapStyle } from '~/lib/geo'
 import type { Idea, Member } from '~/lib/types'
 
@@ -14,6 +16,8 @@ const props = defineProps<{
   draft: { lng: number; lat: number } | null
   center: [number, number]
   zoom: number
+  route: PlanResult | null
+  showRoute: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,7 +29,9 @@ const container = ref<HTMLDivElement>()
 const cfg = useRuntimeConfig().public
 
 let map: maplibregl.Map | null = null
+let styleReady = false
 let draftMarker: maplibregl.Marker | null = null
+let nightMarkers: maplibregl.Marker[] = []
 const markers = new Map<string, { marker: maplibregl.Marker; el: HTMLDivElement; emoji: HTMLSpanElement; score: HTMLSpanElement }>()
 
 onMounted(() => {
@@ -40,6 +46,10 @@ onMounted(() => {
   map.addControl(new maplibregl.ScaleControl({}), 'bottom-left')
   map.on('click', (e) => {
     if (props.picking) emit('pick', { lng: e.lngLat.lng, lat: e.lngLat.lat })
+  })
+  map.on('load', () => {
+    styleReady = true
+    syncRoute()
   })
   syncMarkers()
   syncDraft()
@@ -112,6 +122,52 @@ function syncDraft() {
   }
 }
 
+function syncRoute() {
+  if (!map || !styleReady) return
+  const visible = props.showRoute && props.route ? props.route.days : []
+  const data: FeatureCollection<LineString> = {
+    type: 'FeatureCollection',
+    features: visible.map((d) => ({
+      type: 'Feature',
+      properties: { color: dayColor(d.day), day: d.day },
+      geometry: { type: 'LineString', coordinates: d.geometry },
+    })),
+  }
+  const src = map.getSource('route') as maplibregl.GeoJSONSource | undefined
+  if (src) {
+    src.setData(data)
+  } else {
+    map.addSource('route', { type: 'geojson', data })
+    const layout = { 'line-join': 'round', 'line-cap': 'round' } as const
+    map.addLayer({
+      id: 'route-casing',
+      type: 'line',
+      source: 'route',
+      layout,
+      paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.85 },
+    })
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout,
+      paint: { 'line-color': ['get', 'color'], 'line-width': 4.5 },
+    })
+  }
+
+  nightMarkers.forEach((m) => m.remove())
+  nightMarkers = []
+  for (const d of visible) {
+    if (!d.overnight) continue
+    const el = document.createElement('div')
+    el.className = 'night-pin'
+    el.style.setProperty('--day', dayColor(d.day))
+    el.textContent = `🛏 ${d.day}`
+    el.title = `Tag ${d.day}: Übernachtung bei ${d.overnight.label}`
+    nightMarkers.push(new maplibregl.Marker({ element: el, anchor: 'top', offset: [0, 4] }).setLngLat(d.overnight).addTo(map))
+  }
+}
+
 function syncCursor() {
   if (map) map.getCanvas().style.cursor = props.picking ? 'crosshair' : ''
 }
@@ -119,8 +175,19 @@ function syncCursor() {
 watch(() => [props.ideas, props.visibleIds, props.membersById, props.scores, props.selectedId], syncMarkers)
 watch(() => props.draft && [props.draft.lng, props.draft.lat], syncDraft)
 watch(() => props.picking, syncCursor)
+watch(() => [props.route, props.showRoute], syncRoute)
 
 defineExpose({
+  fitRoute() {
+    if (!map || !props.route) return
+    const coords = props.route.days.flatMap((d) => d.geometry)
+    if (!coords.length) return
+    const bounds = coords.reduce(
+      (b, c) => b.extend(c),
+      new maplibregl.LngLatBounds(coords[0]!, coords[0]!),
+    )
+    map.fitBounds(bounds, { padding: 60, maxZoom: 10, duration: 800 })
+  },
   flyTo(lng: number, lat: number, zoom?: number) {
     map?.flyTo({ center: [lng, lat], zoom: Math.max(zoom ?? 0, map.getZoom()), essential: true })
   },

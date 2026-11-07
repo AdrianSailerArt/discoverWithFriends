@@ -11,18 +11,39 @@ bun install
 bun --bun nuxt dev
 ```
 
-Ohne Keys läuft die App im **Demo-Modus**: Alles liegt im `localStorage` des Browsers, und über das
+Mit Supabase registrieren sich alle per E-Mail und Passwort. Einladungslinks führen nach der
+Registrierung bzw. Anmeldung direkt in die Reise.
+
+Ohne Keys läuft die App im **Demo-Modus** (ohne Login): Alles liegt im `localStorage` des Browsers, und über das
 „Demo“-Menü oben rechts kann man zwischen Personen wechseln, um Abstimmungen zu testen.
 
 ## Supabase einrichten
 
 1. Projekt auf [supabase.com](https://supabase.com) anlegen.
-2. **Authentication → Sign In / Providers → „Allow anonymous sign-ins“** aktivieren.
-3. Inhalt von `supabase/migrations/0001_init.sql` im **SQL Editor** ausführen.
+2. **Authentication → Sign In / Providers:** „Email“ aktiv lassen, „Allow anonymous sign-ins“ **aus**.
+   Unter **Authentication → URL Configuration** die Site URL (lokal `http://localhost:3000`) setzen und
+   `http://localhost:3000/**` als Redirect URL eintragen, damit Bestätigungslinks zurück in die App (z. B. in eine Einladung) führen.
+3. Die Dateien in `supabase/migrations/` der Reihe nach im **SQL Editor** ausführen (`0001_init.sql`, `0002_grants.sql`, `0003_routes.sql`).
 4. `.env.example` nach `.env` kopieren und eintragen:
    - `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY` (Project Settings → API)
    - optional `NUXT_PUBLIC_MAPTILER_KEY` (schönere Outdoor-Karte + bessere Ortssuche; sonst OSM/Nominatim)
 5. Dev-Server neu starten.
+
+### Login mit Google
+
+Die Buttons auf `/login` steuert `NUXT_PUBLIC_AUTH_PROVIDERS` (Standard: `google`; möglich: `google,github`).
+Jeder Anbieter muss in Supabase unter **Authentication → Sign In / Providers** aktiviert werden.
+Callback-URL: `https://<projekt>.supabase.co/auth/v1/callback`
+
+- **Google** (kostenlos): Google Cloud Console → Google Auth Platform → Clients → Web-Client,
+  Callback-URL als „Authorized redirect URI“ eintragen. Client-ID + Secret in Supabase eintragen.
+
+### Routenplaner (OpenRouteService)
+
+Für echte Fahrzeiten und Straßenverläufe einen kostenlosen Key auf
+[openrouteservice.org](https://openrouteservice.org/dev/#/signup) holen und als `NUXT_ORS_API_KEY` in `.env`
+eintragen (bleibt auf dem Server). Ohne Key schätzt der Planer Zeiten aus der Luftlinie.
+Unterkünfte kommen aus OpenStreetMap (Overpass API), dazu Such-Links zu Booking.com und Airbnb.
 
 ## Datenmodell
 
@@ -32,6 +53,7 @@ Ohne Keys läuft die App im **Demo-Modus**: Alles liegt im `localStorage` des Br
 | `trip_members` | Wer ist dabei, Anzeigename, Farbe, Rolle (owner/member) |
 | `ideas` | Pins: Titel, Kategorie, Notiz, Link, Dauer, `lng/lat` + PostGIS-`location` |
 | `votes` | 👎 −1 · 👍 1 · ❤️ 2 (Must-do) pro Person und Idee |
+| `trip_routes` | Zuletzt berechnete Route pro Reise (Parameter + Ergebnis als JSON) |
 
 Zugriff ist per Row Level Security auf Mitglieder einer Reise beschränkt. Anlegen und Beitreten laufen über
 die RPCs `create_trip`, `trip_preview` und `join_trip`.
@@ -50,7 +72,8 @@ supabase/migrations SQL-Schema
 ## Roadmap
 
 - [x] v1: Reise, Einladungslink, Pins mit Kategorien, Votes, Filter, Live-Sync
-- [ ] v2: Tour-Generator (OpenRouteService: Reihenfolge, Tagesetappen, Fahrzeiten) + Unterkünfte aus OSM/Overpass mit Buchungslinks
+- [x] Dashboard mit eigenen und geteilten Reisen, Login mit E-Mail oder Google
+- [x] v2: Routenplaner (Reihenfolge, Tagesetappen, Fahrzeiten via OpenRouteService) + Unterkünfte aus OSM mit Buchungslinks
 - [ ] Gemischter Verkehr: Etappen-Verkehrsmittel, Fähren (CalMac), Links zu ScotRail/Traveline
 - [ ] Wanderungen als Linien / GPX-Upload
 - [ ] Richtige Accounts (anonyme Nutzer per E-Mail verknüpfen), Datenschutz, Englisch

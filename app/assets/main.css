@@ -228,3 +228,16 @@ label {
 .pin.dimmed {
   opacity: 0.35;
 }
+
+.night-pin {
+  --day: #2f6f4f;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--day);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  white-space: nowrap;
+}

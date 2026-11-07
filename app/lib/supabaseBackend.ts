@@ -1,5 +1,25 @@
-import { createClient } from '@supabase/supabase-js'
-import type { Backend, Idea, Member, Trip, TripPreview, Vote } from './types'
+import { createClient, type User } from '@supabase/supabase-js'
+import type { AuthUser, Backend, Idea, Member, Trip, TripPreview, TripRoute, Vote } from './types'
+
+function toAuthUser(u: User | null | undefined): AuthUser | null {
+  // Anonymous sessions (from earlier versions) don't count as signed in.
+  if (!u || u.is_anonymous) return null
+  // display_name: e-mail sign-up; full_name / name: Apple, Google, GitHub
+  const meta = u.user_metadata ?? {}
+  const name = [meta.display_name, meta.full_name, meta.name].find((n) => typeof n === 'string' && n.trim())
+  return { id: u.id, email: u.email ?? null, name: (name as string | undefined)?.trim() ?? null }
+}
+
+const AUTH_ERRORS: Record<string, string> = {
+  'Invalid login credentials': 'E-Mail oder Passwort ist falsch.',
+  'Email not confirmed': 'Bitte bestätige zuerst deine E-Mail-Adresse (Link in der Bestätigungsmail).',
+  'User already registered': 'Diese E-Mail ist bereits registriert. Bitte melde dich an.',
+  'Password should be at least 6 characters.': 'Das Passwort muss mindestens 6 Zeichen lang sein.',
+}
+
+function translateAuthError(msg: string) {
+  return AUTH_ERRORS[msg] ?? msg
+}
 
 function check<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message)
@@ -7,31 +27,104 @@ function check<T>(res: { data: T; error: { message: string } | null }): T {
 }
 
 export function createSupabaseBackend(url: string, anonKey: string): Backend {
-  const sb = createClient(url, anonKey)
+  // PKCE: OAuth returns with ?code=…, which the client exchanges on startup.
+  const sb = createClient(url, anonKey, { auth: { flowType: 'pkce' } })
   let userId = ''
 
   return {
     mode: 'supabase',
+    requiresAuth: true,
 
     async init() {
+      const { data, error } = await sb.auth.getSession()
+      if (error) throw new Error(translateAuthError(error.message))
+      if (data.session?.user.is_anonymous) await sb.auth.signOut()
+      const user = toAuthUser(data.session?.user)
+      userId = user?.id ?? ''
+      return user
+    },
+
+    onAuthChange(cb) {
+      sb.auth.onAuthStateChange((_event, session) => {
+        const user = toAuthUser(session?.user)
+        userId = user?.id ?? ''
+        // Defer: calling other supabase methods inside this callback can deadlock.
+        setTimeout(() => cb(user), 0)
+      })
+    },
+
+    async signUp(email, password, displayName, redirectPath) {
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { display_name: displayName },
+          emailRedirectTo: `${location.origin}${redirectPath}`,
+        },
+      })
+      if (error) throw new Error(translateAuthError(error.message))
+      // Supabase returns a user without identities if the e-mail is already registered.
+      if (data.user && data.user.identities?.length === 0) {
+        throw new Error('Diese E-Mail ist bereits registriert. Bitte melde dich an.')
+      }
+      return { needsConfirmation: !data.session }
+    },
+
+    async signIn(email, password) {
+      const { error } = await sb.auth.signInWithPassword({ email, password })
+      if (error) throw new Error(translateAuthError(error.message))
+    },
+
+    async signInWithProvider(provider, redirectPath) {
+      const { error } = await sb.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: `${location.origin}${redirectPath}` },
+      })
+      if (error) throw new Error(translateAuthError(error.message))
+    },
+
+    async signOut() {
+      const { error } = await sb.auth.signOut()
+      if (error) throw new Error(error.message)
+    },
+
+    async authHeaders(): Promise<Record<string, string>> {
       const { data } = await sb.auth.getSession()
-      if (data.session) {
-        userId = data.session.user.id
-        return userId
-      }
-      const res = await sb.auth.signInAnonymously()
-      if (res.error || !res.data.user) {
-        throw new Error(
-          `Anmeldung fehlgeschlagen: ${res.error?.message ?? 'unbekannt'}. ` +
-            'Sind „Anonymous sign-ins“ in Supabase aktiviert?',
-        )
-      }
-      userId = res.data.user.id
-      return userId
+      return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}
     },
 
     async listMyTrips() {
-      return check(await sb.from('trips').select('*').order('created_at', { ascending: false })) as Trip[]
+      const rows = check(
+        await sb.from('trips').select('*, trip_members(*), ideas(id)').order('created_at', { ascending: false }),
+      ) as (Trip & { trip_members: Member[]; ideas: { id: string }[] })[]
+      // Routes table may not exist yet (migration 0003) – don't break the dashboard.
+      const routes = await sb.from('trip_routes').select('trip_id')
+      const withRoute = new Set((routes.data ?? []).map((r: { trip_id: string }) => r.trip_id))
+      return rows.map(({ trip_members, ideas, ...t }) => ({
+        ...t,
+        members: [...trip_members].sort((a, b) => a.joined_at.localeCompare(b.joined_at)),
+        idea_count: ideas.length,
+        has_route: withRoute.has(t.id),
+      }))
+    },
+
+    async deleteTrip(tripId) {
+      check(await sb.from('trips').delete().eq('id', tripId))
+    },
+
+    async leaveTrip(tripId) {
+      check(await sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId))
+    },
+
+    async saveRoute(tripId, params, plan) {
+      check(
+        await sb
+          .from('trip_routes')
+          .upsert(
+            { trip_id: tripId, params, plan, created_by: userId, created_at: new Date().toISOString() },
+            { onConflict: 'trip_id' },
+          ),
+      )
     },
 
     async createTrip(input) {
@@ -59,7 +152,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     },
 
     async loadTrip(tripId) {
-      const [trip, members, ideas, votes] = await Promise.all([
+      const [trip, members, ideas, votes, route] = await Promise.all([
         sb.from('trips').select('*').eq('id', tripId).maybeSingle(),
         sb.from('trip_members').select('*').eq('trip_id', tripId).order('joined_at'),
         sb
@@ -67,6 +160,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
           .select('id,trip_id,created_by,title,note,url,category,lng,lat,duration_min,created_at')
           .eq('trip_id', tripId),
         sb.from('votes').select('idea_id,trip_id,user_id,value').eq('trip_id', tripId),
+        sb.from('trip_routes').select('*').eq('trip_id', tripId).maybeSingle(),
       ])
       const t = check(trip) as Trip | null
       if (!t) return null
@@ -75,6 +169,8 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
         members: check(members) as Member[],
         ideas: check(ideas) as Idea[],
         votes: check(votes) as Vote[],
+        // tolerate a missing trip_routes table (migration 0003 not run yet)
+        route: route.error ? null : (route.data as TripRoute | null),
       }
     },
 
@@ -111,7 +207,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     subscribe(tripId, onChange) {
       const filter = `trip_id=eq.${tripId}`
       const channel = sb.channel(`trip:${tripId}`)
-      for (const table of ['ideas', 'votes', 'trip_members']) {
+      for (const table of ['ideas', 'votes', 'trip_members', 'trip_routes']) {
         channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter }, onChange)
         channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter }, onChange)
         // DELETE events cannot be filtered by column; refetch on any delete.
