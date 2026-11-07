@@ -8,6 +8,7 @@ import type { PlanResult } from '#shared/plan'
 import { CATEGORIES, dayColor } from '~/lib/constants'
 import { mapStyle, reverseGeocode } from '~/lib/geo'
 import { toPoi, type MapPoi } from '~/lib/poi'
+import { fetchPlaceInfo, formatOpeningHours } from '~/lib/placeInfo'
 import type { Category, Idea, Member } from '~/lib/types'
 
 const props = defineProps<{
@@ -225,7 +226,41 @@ function showPopup(lng: number, lat: number, title: string, kind: string, sugges
     btn.addEventListener('click', () => addSuggestion(suggestion))
     el.append(btn)
   }
-  popup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 10 }).setLngLat([lng, lat]).setDOMContent(el).addTo(map)
+  popup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 10 }).setLngLat([lng, lat]).setDOMContent(el).addTo(map)
+  if (suggestion) void enrichPopup(popup, el, suggestion)
+}
+
+/** Adds photo, short description and opening hours (OpenStreetMap/Wikipedia) once loaded. */
+async function enrichPopup(p: maplibregl.Popup, el: HTMLElement, s: { name: string; lng: number; lat: number }) {
+  const info = await fetchPlaceInfo(s.name, s.lat, s.lng).catch(() => null)
+  if (!info?.found || popup !== p || !p.isOpen()) return
+  const extra = document.createElement('div')
+  extra.className = 'poi-extra'
+  if (info.image) {
+    const img = document.createElement('img')
+    img.src = info.image.url
+    img.alt = s.name
+    img.loading = 'lazy'
+    img.referrerPolicy = 'no-referrer'
+    extra.append(img)
+  }
+  const text = info.description ?? info.extract
+  if (text) {
+    const d = document.createElement('p')
+    d.className = 'poi-desc'
+    d.textContent = text
+    extra.append(d)
+  }
+  if (info.openingHours) {
+    const h = document.createElement('p')
+    h.className = 'poi-hours'
+    const lines = formatOpeningHours(info.openingHours)
+    h.textContent = `🕒 ${lines[0]}${lines.length > 1 ? ' …' : ''}`
+    extra.append(h)
+  }
+  if (!extra.childElementCount) return
+  // photo on top, details below the title
+  el.insertBefore(extra, el.querySelector('.btn'))
 }
 
 function addSuggestion(s: { name: string; lng: number; lat: number; category: Category }) {
@@ -265,7 +300,8 @@ function refreshDiscover() {
     .map((f) => toPoi(f, c))
     .filter((p): p is MapPoi => !!p && p.rank >= 4)
     .filter((p) => {
-      const key = p.name.toLowerCase()
+      // "Loch Lomond and The Trossachs" vs "Loch-Lomond-and-the-Trossachs-…" → same place
+      const key = p.name.toLowerCase().replace(/[^a-z0-9äöüß]/g, '').slice(0, 24)
       if (seen.has(key)) return false
       seen.add(key)
       return true

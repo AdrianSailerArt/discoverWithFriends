@@ -79,7 +79,7 @@ export function toPoi(f: {
 }, fallback: { lng: number; lat: number }): MapPoi | null {
   if (!f.sourceLayer || !POI_SOURCE_LAYERS.has(f.sourceLayer)) return null
   const p = f.properties
-  const name = (p['name:de'] ?? p['name:latin'] ?? p.name) as string | undefined
+  const name = (p['name:de'] ?? p['name:en'] ?? p['name:latin'] ?? p.name) as string | undefined
   if (!name || typeof name !== 'string') return null
 
   const cls = String(p.subclass ?? p.class ?? '')

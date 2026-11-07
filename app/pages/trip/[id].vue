@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CATEGORIES, CATEGORY_KEYS } from '~/lib/constants'
+import { googleMapsUrl } from '~/lib/placeInfo'
 import type { Place } from '~/lib/geo'
 import type { Category, Idea, IdeaInput, Member, Vote, VoteValue } from '~/lib/types'
 
@@ -443,12 +444,10 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           <p v-if="selected.url">
             <a :href="selected.url" target="_blank" rel="noopener noreferrer">{{ selected.url }}</a>
           </p>
+          <PlaceInfoCard :key="selected.id" :name="selected.title" :lat="selected.lat" :lng="selected.lng" />
           <p>
-            <a
-              :href="`https://www.google.com/maps/search/?api=1&query=${selected.lat},${selected.lng}`"
-              target="_blank"
-              rel="noopener noreferrer"
-              >In Google Maps öffnen</a
+            <a :href="googleMapsUrl(selected.title, selected.lat, selected.lng)" target="_blank" rel="noopener noreferrer"
+              >In Google Maps öffnen (Bewertungen, Fotos)</a
             >
           </p>
           <div class="row">
