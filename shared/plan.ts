@@ -111,7 +111,8 @@ export interface DayPlan {
 
 export interface PlanResult {
   version: 1
-  source: 'ors' | 'estimate'
+  /** ors = OpenRouteService, osrm = routing.openstreetmap.de, estimate = straight line */
+  source: 'ors' | 'osrm' | 'estimate'
   profile: Profile
   days: DayPlan[]
   unscheduled: { id: string; title: string }[]

@@ -40,9 +40,11 @@ Callback-URL: `https://<projekt>.supabase.co/auth/v1/callback`
 
 ### Routenplaner (OpenRouteService)
 
-Für echte Fahrzeiten und Straßenverläufe einen kostenlosen Key auf
-[openrouteservice.org](https://openrouteservice.org/dev/#/signup) holen und als `NUXT_ORS_API_KEY` in `.env`
-eintragen (bleibt auf dem Server). Ohne Key schätzt der Planer Zeiten aus der Luftlinie.
+Fahrzeiten und Straßenverläufe (inkl. Fähren) kommen ohne Key von den freien OSRM-Servern auf
+[routing.openstreetmap.de](https://routing.openstreetmap.de/about.html) (Fair Use). Optional, für mehr Last:
+kostenlosen Key auf [openrouteservice.org](https://openrouteservice.org/dev/#/signup) holen und als
+`NUXT_ORS_API_KEY` in `.env` eintragen (bleibt auf dem Server). Sind beide Dienste nicht erreichbar,
+schätzt der Planer Zeiten aus der Luftlinie.
 Unterkünfte kommen aus OpenStreetMap (Overpass API), dazu Such-Links zu Booking.com und Airbnb.
 
 ## Online stellen (Vercel)

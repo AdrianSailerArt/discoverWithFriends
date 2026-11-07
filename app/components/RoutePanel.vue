@@ -471,9 +471,13 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
         <div class="muted small">
           Berechnet von {{ createdBy }} am {{ new Date(route!.created_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) }}
           <span v-if="route!.params.fixedDays" class="badge">von Hand angepasst</span>
-          <span v-if="plan.source === 'estimate'" class="badge" title="Ohne OpenRouteService-Key werden Zeiten aus der Luftlinie geschätzt (ohne Fähren).">Zeiten geschätzt</span>
+          <span v-if="plan.source === 'estimate'" class="badge" title="Der Routing-Dienst war nicht erreichbar – Zeiten aus der Luftlinie geschätzt.">Luftlinie</span>
         </div>
       </div>
+      <p v-if="plan.source === 'estimate'" class="notice small">
+        Diese Route nutzt noch geschätzte Luftlinien.
+        <button class="link-btn" :disabled="busy" @click="compute(route!.params.fixedDays ?? null)">Jetzt mit echten Straßen neu berechnen</button>
+      </p>
 
       <ul v-if="plan.warnings.length" class="warnings">
         <li v-for="(w, i) in plan.warnings" :key="i">⚠️ {{ w }}</li>
@@ -773,6 +777,15 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
   width: auto;
   padding: 0.2rem 0.4rem;
   font-size: 0.8rem;
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
 }
 .sticky {
   position: sticky;

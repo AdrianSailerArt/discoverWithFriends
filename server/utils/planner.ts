@@ -1,5 +1,6 @@
 import { PROFILES, type DayItem, type DayPlan, type PlanPoint, type PlanRequest, type PlanResult } from '#shared/plan'
 import { estimateMatrix, orsDirections, orsMatrix, type LngLat, type Matrix } from './ors'
+import { osrmMatrix, osrmRoute } from './osrm'
 
 interface DraftDay {
   fromIdx: number
@@ -22,7 +23,7 @@ interface Ctx {
 
 /**
  * Plans a multi-day route:
- *  1. travel-time matrix (OpenRouteService, or straight-line estimate)
+ *  1. travel-time matrix (OpenRouteService with key, else OSRM, else straight-line estimate)
  *  2a. automatic: order stops (nearest neighbour + 2-opt), split into days by active/travel
  *      time, drop the least popular non-must-do stops until it fits into the planned days
  *  2b. manual (req.fixedDays): keep the given day assignment, optimise order within each day
@@ -48,12 +49,21 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
   const estimate = estimateMatrix(pts, PROFILES[req.profile].kmh)
   let m: Matrix = estimate
   let source: PlanResult['source'] = 'estimate'
+  // OpenRouteService if a key is configured, otherwise (or if it fails) the free OSRM servers
   if (orsKey) {
     try {
       m = await orsMatrix(pts, req.profile, orsKey, estimate)
       source = 'ors'
+    } catch {
+      // fall through to OSRM
+    }
+  }
+  if (source === 'estimate') {
+    try {
+      m = await osrmMatrix(pts, req.profile, estimate)
+      source = 'osrm'
     } catch (e) {
-      warnings.push(`Routing-Dienst nicht erreichbar (${(e as Error).message}) – Zeiten sind geschätzt.`)
+      warnings.push(`Routing-Dienst nicht erreichbar (${(e as Error).message}) – Zeiten sind aus der Luftlinie geschätzt.`)
     }
   }
   const ctx: Ctx = { req, m, endIdx, visit }
@@ -112,9 +122,9 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
   for (const d of days) {
     const wp = dedupe([d.fromIdx, ...d.stops, d.toIdx].map((i) => pts[i]!))
     let geom: LngLat[] = wp
-    if (source === 'ors' && wp.length >= 2 && !geometryFailed) {
+    if (source !== 'estimate' && wp.length >= 2 && !geometryFailed) {
       try {
-        geom = await orsDirections(wp, req.profile, orsKey)
+        geom = source === 'ors' ? await orsDirections(wp, req.profile, orsKey) : await osrmRoute(wp, req.profile)
       } catch {
         geometryFailed = true
         warnings.push('Straßenverlauf konnte nicht geladen werden – Karte zeigt Luftlinien.')
