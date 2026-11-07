@@ -76,7 +76,7 @@ const hours = computed({
   align-items: center;
   padding: 4px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   cursor: pointer;
   color: var(--text);
   font-size: 0.85rem;

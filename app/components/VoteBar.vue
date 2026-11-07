@@ -57,7 +57,7 @@ function toggle(value: VoteValue) {
   align-items: center;
   gap: 3px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;

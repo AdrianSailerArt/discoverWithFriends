@@ -47,7 +47,7 @@ const km = (a: LngLat, b: LngLat) => haversineKm(a, b)
 /**
  * One Overpass query for all nights. For each night, picks the best place to sleep:
  * many accommodations close together, little detour towards the next day.
- * One small Overpass query per night (max. 3 in parallel, cached); a night whose query
+ * One small Overpass query per night (max. 2 in parallel, cached); a night whose query
  * fails yields null so the client can retry just that one.
  */
 export async function findLodging(spots: NightSpot[]): Promise<(NightLodging | null)[]> {
@@ -65,7 +65,7 @@ export async function findLodging(spots: NightSpot[]): Promise<(NightLodging | n
       }
     }
   }
-  await Promise.all([worker(), worker(), worker()])
+  await Promise.all([worker(), worker()]) // Overpass allows 2 parallel requests per IP
   if (spots.length && results.every((r) => r === null)) {
     throw createError({
       statusCode: 502,
@@ -184,7 +184,14 @@ async function queryOverpass(points: LngLat[]): Promise<Found[]> {
       distanceKm: 0,
       website: tags.website ?? tags['contact:website'] ?? null,
       osmUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-      place: tags['addr:city'] ?? tags['addr:town'] ?? tags['addr:village'] ?? tags['addr:place'] ?? tags['addr:hamlet'] ?? null,
+      // most specific first: in the UK addr:city is often the postal town or even the island
+      place:
+        tags['addr:village'] ??
+        tags['addr:hamlet'] ??
+        tags['addr:town'] ??
+        tags['addr:place'] ??
+        tags['addr:city'] ??
+        null,
     })
   }
   return out

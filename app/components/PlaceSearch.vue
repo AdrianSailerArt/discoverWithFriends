@@ -64,7 +64,14 @@ function choose(p: Place) {
   display: flex;
   gap: 6px;
   box-shadow: var(--shadow);
-  border-radius: 8px;
+  border-radius: var(--radius);
+}
+.bar .btn {
+  background: var(--surface);
+  transform: none;
+}
+.bar .btn:hover {
+  background: var(--surface-2);
 }
 .results {
   margin-top: 6px;
@@ -80,7 +87,7 @@ function choose(p: Place) {
   padding: 6px 8px;
   border: 0;
   background: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 .result:hover {

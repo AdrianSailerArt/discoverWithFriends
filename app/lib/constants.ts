@@ -31,5 +31,5 @@ export const REGIONS = [
 ]
 
 /** Colours for route days on the map and in the day list */
-export const DAY_COLORS = ['#2f6f4f', '#2e86ab', '#a23b72', '#d98e04', '#6c4ab6', '#e4572e', '#17a398', '#c44569']
+export const DAY_COLORS = ['#922625', '#2e86ab', '#d98e04', '#485166', '#6c4ab6', '#17a398', '#e4572e', '#65718f']
 export const dayColor = (day: number) => DAY_COLORS[(day - 1) % DAY_COLORS.length]!

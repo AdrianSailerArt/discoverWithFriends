@@ -1,32 +1,58 @@
+/*
+ * Design based on Adrian Sailer Art (adriansailer.de):
+ * Geist, crimson primary, light grey surfaces, square corners, black hairlines,
+ * slightly tilted buttons/cards with an offset outline that moves on hover.
+ */
+
+/* Geist is served locally – no requests to third-party font servers (GDPR) */
+@font-face {
+  font-family: 'Geist';
+  src:
+    url('./font/Geist[wght].woff2') format('woff2-variations'),
+    url('./font/Geist[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --bg: #f6f5f1;
-  --surface: #ffffff;
-  --surface-2: #efeee9;
-  --text: #1d2321;
-  --muted: #5f6a66;
-  --border: #dcdad3;
-  --accent: #2f6f4f;
+  --bg: #e4e4e4;
+  --surface: #f5f5f7;
+  --surface-2: #d8d8d8;
+  --sheet: #c2c6cc;
+  --text: #1d1d1f;
+  --muted: #4a515b;
+  --border: #b0b0b0;
+  --line: #000000;
+  --accent: #922625;
+  --accent-strong: #6e1d1b;
   --accent-text: #ffffff;
-  --accent-soft: #e2efe7;
-  --danger: #b3261e;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
-  --radius: 10px;
+  --accent-soft: rgb(146 38 37 / 0.1);
+  --danger: #b32424;
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --radius: 0px;
+  --radius-tag: 4px;
+  --tilt: -1deg;
+  --font: 'Geist', 'Geist Fallback', ui-sans-serif, system-ui, sans-serif;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #141816;
-    --surface: #1c211f;
-    --surface-2: #252b28;
-    --text: #e8ebe9;
-    --muted: #9aa5a0;
-    --border: #333b37;
-    --accent: #6fbf8f;
-    --accent-text: #0f1a14;
-    --accent-soft: #23362b;
-    --danger: #f2b8b5;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.3);
+    --bg: #1a1a1a;
+    --surface: #2c2c2c;
+    --surface-2: #3a3a3a;
+    --sheet: #3a3d42;
+    --text: #f0f0f0;
+    --muted: #b0b0b0;
+    --border: #4a515b;
+    --line: #8a9199;
+    --accent: #bf3230;
+    --accent-strong: #e83d3a;
+    --accent-text: #ffffff;
+    --accent-soft: rgb(191 50 48 / 0.2);
+    --danger: #e67373;
+    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
     color-scheme: dark;
   }
 }
@@ -44,7 +70,10 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 #__nuxt {
@@ -54,12 +83,20 @@ body {
 h1,
 h2,
 h3 {
+  font-weight: 700;
   line-height: 1.2;
+  letter-spacing: -0.02em;
   margin: 0 0 0.5em;
 }
 
 a {
   color: var(--accent);
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--accent-strong);
 }
 
 button,
@@ -74,9 +111,10 @@ input,
 select,
 textarea {
   width: 100%;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
 }
 
@@ -85,43 +123,63 @@ textarea {
   min-height: 4.5rem;
 }
 
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-button:focus-visible {
+:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 label {
   display: grid;
   gap: 0.25rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--muted);
 }
 
+/* Small uppercase label above sections */
+.overline {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* --- Buttons ------------------------------------------------------------------
+   Default = outlined; .primary = crimson with the offset outline from adriansailer.de */
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  cursor: pointer;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   text-decoration: none;
-  color: var(--text);
+  cursor: pointer;
+  transform: rotate(var(--tilt));
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .btn:hover {
-  background: var(--surface-2);
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 .btn:disabled {
-  opacity: 0.55;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn.primary {
@@ -130,25 +188,97 @@ label {
   color: var(--accent-text);
 }
 
+.btn.primary::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  border: 1px solid var(--line);
+  pointer-events: none;
+  transition: all 0.2s ease-in-out;
+}
+
 .btn.primary:hover {
-  filter: brightness(1.08);
+  background: var(--accent);
+  color: var(--accent-text);
+  opacity: 0.92;
+}
+
+.btn.primary:not(:disabled):hover::after,
+.btn.primary:focus-visible::after {
+  left: 2px;
+  bottom: 2px;
 }
 
 .btn.danger {
   color: var(--danger);
+  border-color: var(--danger);
 }
 
 .btn.small {
-  padding: 0.25rem 0.55rem;
-  font-size: 0.85rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
 }
 
+.btn.small.primary::after {
+  left: 3px;
+  bottom: 3px;
+}
+
+/* --- Cards ("sheets") ----------------------------------------------------------- */
 .card {
+  position: relative;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.25rem;
+  padding: 1.5rem;
+}
+
+.card::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  border: 1px solid var(--line);
+  pointer-events: none;
+  transition: all 0.2s ease;
+}
+
+/* Opt-in tilt with hover lift, alternating like the sheets on adriansailer.de */
+.tilt {
+  transform: rotate(-1deg);
+  transition: transform 0.2s ease;
+}
+
+.tilt:nth-child(even) {
+  transform: rotate(1deg);
+}
+
+.tilt:hover {
+  transform: translateY(-6px) rotate(-1deg);
+}
+
+.tilt:nth-child(even):hover {
+  transform: translateY(-6px) rotate(1deg);
+}
+
+.tilt:hover::after {
+  left: 3px;
+  bottom: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tilt,
+  .tilt:hover,
+  .tilt:nth-child(even),
+  .tilt:nth-child(even):hover {
+    transform: none;
+  }
 }
 
 .muted {
@@ -161,7 +291,7 @@ label {
 
 .notice {
   background: var(--accent-soft);
-  border-radius: 8px;
+  border-left: 3px solid var(--accent);
   padding: 0.6rem 0.8rem;
   font-size: 0.9rem;
 }
@@ -181,7 +311,7 @@ label {
   flex: none;
 }
 
-/* Map pins */
+/* --- Map --------------------------------------------------------------------- */
 .pin {
   --pin-color: #888;
   width: 34px;
@@ -230,14 +360,24 @@ label {
 }
 
 .night-pin {
-  --day: #2f6f4f;
-  padding: 2px 7px;
-  border-radius: 999px;
+  --day: #922625;
+  padding: 2px 8px;
   background: var(--day);
   color: #fff;
+  font-family: var(--font);
   font-size: 12px;
   font-weight: 700;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  border: 1px solid #000;
+  box-shadow: -3px 3px 0 #000;
+  transform: rotate(-2deg);
   white-space: nowrap;
+}
+
+.maplibregl-ctrl-group {
+  border-radius: var(--radius) !important;
+  border: 1px solid #000;
+}
+
+.maplibregl-ctrl-attrib {
+  font-family: var(--font);
 }

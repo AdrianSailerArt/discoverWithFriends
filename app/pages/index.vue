@@ -162,7 +162,7 @@ function dateRange(t: TripSummary) {
         <h2>Meine Reisen <span class="count">{{ mine.length }}</span></h2>
         <p v-if="!mine.length" class="muted">Du hast noch keine eigene Reise angelegt.</p>
         <div class="grid">
-          <article v-for="t in mine" :key="t.id" class="card trip">
+          <article v-for="t in mine" :key="t.id" class="card trip tilt">
             <NuxtLink :to="`/trip/${t.id}`" class="stretched">
               <h3>{{ t.name }}</h3>
             </NuxtLink>
@@ -197,7 +197,7 @@ function dateRange(t: TripSummary) {
           Noch nichts. Wenn dich jemand über einen Einladungslink einlädt, erscheint die Reise hier.
         </p>
         <div class="grid">
-          <article v-for="t in shared" :key="t.id" class="card trip">
+          <article v-for="t in shared" :key="t.id" class="card trip tilt">
             <NuxtLink :to="`/trip/${t.id}`" class="stretched">
               <h3>{{ t.name }}</h3>
             </NuxtLink>
@@ -262,7 +262,7 @@ h2 {
   font-weight: 600;
   background: var(--surface-2);
   color: var(--muted);
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   padding: 1px 8px;
 }
 .form {
@@ -284,17 +284,14 @@ h2 {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+  gap: 28px 24px;
+  padding: 6px 4px 6px 0;
 }
 .trip {
-  position: relative;
   display: grid;
   gap: 6px;
-  padding: 16px;
-  transition: border-color 0.12s;
-}
-.trip:hover {
-  border-color: var(--accent);
+  padding: 18px;
+  background: var(--sheet);
 }
 .trip h3 {
   margin: 0;

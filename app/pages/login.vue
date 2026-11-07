@@ -239,21 +239,27 @@ header p {
 .tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  background: var(--surface-2);
-  border-radius: 8px;
-  padding: 3px;
+  border: 1px solid var(--line);
 }
 .tabs button {
   border: 0;
   background: none;
-  padding: 0.45rem;
-  border-radius: 6px;
+  padding: 0.55rem;
   cursor: pointer;
   color: var(--muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+.tabs button + button {
+  border-left: 1px solid var(--line);
 }
 .tabs button.active {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.tabs button.active .muted {
+  color: inherit;
+  opacity: 0.8;
 }
 </style>

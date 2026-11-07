@@ -160,35 +160,48 @@ function nextTarget(p: PlanResult, d: DayPlan): [number, number] | null {
   return last ? [last.to.lng, last.to.lat] : null
 }
 
+const accProgress = ref({ done: 0, total: 0 })
+/** nights per request – Overpass can take ~30 s per night when busy */
+const NIGHTS_PER_REQUEST = 2
+
+/** Loads accommodations in small batches; every finished batch is saved and shown right away. */
 async function loadAccommodations(p: PlanResult, params: RouteParams) {
-  const nights = pendingNights(p)
-  if (!nights.length || accLoading.value) return
+  if (accLoading.value) return
+  const updated: PlanResult = JSON.parse(JSON.stringify(p))
+  const nights = pendingNights(updated)
+  if (!nights.length) return
   accLoading.value = true
   accError.value = null
+  accProgress.value = { done: 0, total: nights.length }
+  let failed = 0
   try {
-    const res = await $fetch<(NightLodging | null)[]>('/api/accommodations', {
-      method: 'POST',
-      body: { spots: nights.map((d) => ({ at: [d.overnight!.lng, d.overnight!.lat], next: nextTarget(p, d) })) },
-      headers: await backend.authHeaders(),
-      timeout: 180000,
-    })
-    const updated: PlanResult = JSON.parse(JSON.stringify(p))
-    let k = 0
-    let failed = 0
-    for (const d of updated.days) {
-      if (d.overnight && d.overnight.accommodations === null) {
-        const r = res[k++]
-        if (!r) {
-          failed++
-          continue // stays pending → retry later
-        }
-        d.overnight.base = r.base
-        d.overnight.accommodations = r.accommodations
+    for (let i = 0; i < nights.length; i += NIGHTS_PER_REQUEST) {
+      const chunk = nights.slice(i, i + NIGHTS_PER_REQUEST)
+      let res: (NightLodging | null)[]
+      try {
+        res = await $fetch<(NightLodging | null)[]>('/api/accommodations', {
+          method: 'POST',
+          body: { spots: chunk.map((d) => ({ at: [d.overnight!.lng, d.overnight!.lat], next: nextTarget(updated, d) })) },
+          headers: await backend.authHeaders(),
+          timeout: 150000,
+        })
+      } catch {
+        res = chunk.map(() => null)
       }
-    }
-    if (failed < nights.length) {
-      await backend.saveRoute(props.data.trip.id, params, updated)
-      emit('saved')
+      chunk.forEach((d, j) => {
+        const r = res[j]
+        if (!r) {
+          failed++ // stays pending → can be retried
+          return
+        }
+        d.overnight!.base = r.base
+        d.overnight!.accommodations = r.accommodations
+      })
+      accProgress.value = { done: accProgress.value.done + chunk.length, total: nights.length }
+      if (res.some(Boolean)) {
+        await backend.saveRoute(props.data.trip.id, params, updated)
+        emit('saved')
+      }
     }
     if (failed) {
       accError.value = `Für ${failed} ${failed === 1 ? 'Nacht' : 'Nächte'} konnte OpenStreetMap gerade keine Unterkünfte liefern.`
@@ -483,7 +496,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
         <li v-for="(w, i) in plan.warnings" :key="i">⚠️ {{ w }}</li>
       </ul>
 
-      <p v-if="accLoading" class="notice small">🛏 Suche Unterkünfte in OpenStreetMap… (kann bis zu einer Minute dauern)</p>
+      <p v-if="accLoading" class="notice small">🛏 Suche Unterkünfte in OpenStreetMap… {{ accProgress.done }}/{{ accProgress.total }} Nächte (bis zu 30 s pro Nacht)</p>
       <p v-else-if="accError" class="error small">
         {{ accError }}
         <button class="btn small" @click="accError = null; loadAccommodations(route!.plan, route!.params)">Nochmal</button>
@@ -566,7 +579,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
 }
 .settings {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 8px 12px;
 }
 .settings summary {
@@ -606,14 +619,14 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
   gap: 4px;
   padding: 8px;
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 .result {
   text-align: left;
   border: 0;
   background: none;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 0.85rem;
 }
@@ -651,7 +664,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   background: var(--surface-2);
   color: var(--text);
 }
@@ -673,7 +686,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
 .day {
   border: 1px solid var(--border);
   border-left: 4px solid var(--day);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 10px 12px;
   display: grid;
   gap: 6px;
@@ -715,7 +728,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
 }
 .night {
   background: var(--surface-2);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 10px;
   display: grid;
   gap: 6px;
@@ -755,7 +768,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface-2);
 }
 .unscheduled .edit-stops {
@@ -764,7 +777,7 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
 .icon {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
