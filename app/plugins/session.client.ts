@@ -16,11 +16,17 @@ export default defineNuxtPlugin(async () => {
     return
   }
 
-  // After an OAuth redirect the one-time ?code=… has been exchanged; drop it from the URL.
+  // After an OAuth redirect: drop the one-time ?code=…, and keep any error the provider sent back
+  // (?error_description=… or #error_description=…) so the login page can show it instead of
+  // silently starting over.
   const url = new URL(location.href)
-  if (url.searchParams.has('code')) {
-    url.searchParams.delete('code')
-    history.replaceState(history.state, '', url.pathname + url.search + url.hash)
+  const hash = new URLSearchParams(url.hash.slice(1))
+  const oauthError = url.searchParams.get('error_description') ?? hash.get('error_description')
+  if (oauthError) useAuthError().value = oauthError
+  if (url.searchParams.has('code') || oauthError) {
+    for (const key of ['code', 'error', 'error_code', 'error_description']) url.searchParams.delete(key)
+    const keepHash = oauthError ? '' : url.hash
+    history.replaceState(history.state, '', url.pathname + url.search + keepHash)
   }
 
   backend.onAuthChange((user) => {

@@ -9,10 +9,16 @@ const isInvite = computed(() => redirect.value.startsWith('/join/'))
 const mode = ref<'signin' | 'signup'>(isInvite.value ? 'signup' : 'signin')
 const form = reactive({ name: '', email: '', password: '' })
 const busy = ref(false)
-// OAuth providers report failures back as ?error_description=…
+// OAuth providers report failures back as ?error_description=… (captured in plugins/session.client.ts)
+const authError = useAuthError()
 const error = ref<string | null>(
-  typeof route.query.error_description === 'string' ? route.query.error_description : null,
+  authError.value
+    ? `Anmeldung fehlgeschlagen: ${authError.value}`
+    : typeof route.query.error_description === 'string'
+      ? route.query.error_description
+      : null,
 )
+authError.value = null
 const confirmSentTo = ref<string | null>(null)
 
 const PROVIDER_LABELS: Record<OAuthProvider, string> = { apple: 'Apple', google: 'Google', github: 'GitHub' }

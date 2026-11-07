@@ -25,5 +25,7 @@ export function safeRedirect(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/'
 }
 export const useInitError = () => useState<string | null>('initError', () => null)
+/** Error reported by an OAuth provider on the way back (shown once on the login page) */
+export const useAuthError = () => useState<string | null>('authError', () => null)
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
