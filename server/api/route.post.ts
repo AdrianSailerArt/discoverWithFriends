@@ -23,6 +23,14 @@ function point(p: unknown, name: string): PlanPoint {
   return { lng: o.lng, lat: o.lat, label: String(o.label ?? '').slice(0, 160) }
 }
 
+function fixedDays(v: unknown): string[][] | null {
+  if (v == null) return null
+  if (!Array.isArray(v) || v.length > 60 || !v.every((d) => Array.isArray(d) && d.every((id) => typeof id === 'string'))) {
+    bad('Ungültige Tageseinteilung')
+  }
+  return (v as string[][]).map((d) => d.slice(0, MAX_STOPS))
+}
+
 function validate(b: PlanRequest): PlanRequest {
   if (!b || typeof b !== 'object') bad('Ungültige Anfrage')
   if (!Array.isArray(b.stops)) bad('stops fehlt')
@@ -38,6 +46,7 @@ function validate(b: PlanRequest): PlanRequest {
     profile: b.profile,
     maxDriveMin: b.maxDriveMin,
     dayMin: b.dayMin,
+    fixedDays: fixedDays(b.fixedDays),
     stops: b.stops.map((s, i) => {
       const p = point(s, `Stopp ${i + 1}`)
       return {

@@ -47,6 +47,11 @@ export interface PlanRequest {
   maxDriveMin: number
   /** max. active time per day incl. travel and visits (minutes) */
   dayMin: number
+  /**
+   * Manual day layout (stop ids per day, [] = rest day). When set, the planner keeps this
+   * assignment and only optimises the order within each day.
+   */
+  fixedDays?: string[][] | null
 }
 
 export type DayItem =
@@ -63,10 +68,27 @@ export interface Accommodation {
   osmUrl: string
 }
 
-export interface Overnight {
+/** Town/area with accommodation near the last stop of a day */
+export interface LodgingBase {
   lng: number
   lat: number
   label: string
+  /** distance from the day's last stop */
+  distanceKm: number
+}
+
+export interface NightLodging {
+  base: LodgingBase | null
+  accommodations: Accommodation[]
+}
+
+export interface Overnight {
+  /** last stop of the day */
+  lng: number
+  lat: number
+  label: string
+  /** best place to sleep nearby (set together with accommodations) */
+  base?: LodgingBase | null
   /** null = not loaded yet */
   accommodations: Accommodation[] | null
 }
@@ -74,6 +96,8 @@ export interface Overnight {
 export interface DayPlan {
   day: number
   date: string | null
+  /** rest day: no travel, stay at the same place */
+  rest?: boolean
   from: PlanPoint
   to: PlanPoint
   items: DayItem[]
@@ -106,4 +130,6 @@ export interface RouteParams {
   dayH: number
   minScore: number
   travelers: number
+  /** manual day layout from the editor; null/undefined = plan automatically */
+  fixedDays?: string[][] | null
 }

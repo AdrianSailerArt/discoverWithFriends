@@ -5,6 +5,10 @@ export default defineNuxtConfig({
   // Map-heavy, realtime app: render client-side only for now.
   ssr: false,
   css: ['maplibre-gl/dist/maplibre-gl.css', '~/assets/main.css'],
+  nitro: {
+    // Vercel: the accommodation search (Overpass, with retries) can take a few minutes.
+    vercel: { functions: { maxDuration: 300 } },
+  },
   vite: {
     // MapLibre loads its web worker relative to its own module file;
     // pre-bundling breaks that URL.

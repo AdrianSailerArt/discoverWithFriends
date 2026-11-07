@@ -158,13 +158,14 @@ function syncRoute() {
   nightMarkers.forEach((m) => m.remove())
   nightMarkers = []
   for (const d of visible) {
-    if (!d.overnight) continue
+    if (!d.overnight || d.rest) continue
+    const spot = d.overnight.base ?? d.overnight
     const el = document.createElement('div')
     el.className = 'night-pin'
     el.style.setProperty('--day', dayColor(d.day))
     el.textContent = `🛏 ${d.day}`
-    el.title = `Tag ${d.day}: Übernachtung bei ${d.overnight.label}`
-    nightMarkers.push(new maplibregl.Marker({ element: el, anchor: 'top', offset: [0, 4] }).setLngLat(d.overnight).addTo(map))
+    el.title = `Tag ${d.day}: Übernachtung in ${spot.label}`
+    nightMarkers.push(new maplibregl.Marker({ element: el, anchor: 'top', offset: [0, 4] }).setLngLat(spot).addTo(map))
   }
 }
 

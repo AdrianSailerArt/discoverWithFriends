@@ -10,15 +10,23 @@ interface DraftDay {
   km: number
   activeMin: number
   overnight: boolean
+  rest: boolean
+}
+
+interface Ctx {
+  req: PlanRequest
+  m: Matrix
+  endIdx: number
+  visit: (i: number) => number
 }
 
 /**
  * Plans a multi-day route:
  *  1. travel-time matrix (OpenRouteService, or straight-line estimate)
- *  2. order stops (nearest neighbour + 2-opt) from start to end
- *  3. split into days by active time / travel time per day
- *  4. if it needs more days than planned, drop the least popular non-must-do stops and repeat
- *  5. road geometry per day (accommodations: see /api/accommodations)
+ *  2a. automatic: order stops (nearest neighbour + 2-opt), split into days by active/travel
+ *      time, drop the least popular non-must-do stops until it fits into the planned days
+ *  2b. manual (req.fixedDays): keep the given day assignment, optimise order within each day
+ *  3. road geometry per day (accommodations: see /api/accommodations)
  */
 export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanResult> {
   const warnings: string[] = []
@@ -48,24 +56,42 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
       warnings.push(`Routing-Dienst nicht erreichbar (${(e as Error).message}) – Zeiten sind geschätzt.`)
     }
   }
+  const ctx: Ctx = { req, m, endIdx, visit }
 
-  // 2.–4. order, split, drop until it fits
-  let active = stops.map((_, i) => i + 1)
+  // 2. days
+  let active: number[]
   let days: DraftDay[]
-  for (;;) {
-    const order = orderStops(active, m, 0, endIdx)
-    days = splitDays(order, m, req, visit, endIdx)
-    if (days.length <= req.days) break
-    const victim = pickVictim(order, m, req, visit, endIdx)
-    if (victim == null) {
-      warnings.push(
-        `Die Must-dos brauchen ${days.length} Tage – mehr als die geplanten ${req.days}. ` +
-          'Mehr Tage einplanen, längere Tage erlauben oder Must-dos reduzieren.',
-      )
-      break
+  if (req.fixedDays?.length) {
+    const idxById = new Map(stops.map((s, i) => [s.id, i + 1]))
+    const seen = new Set<number>()
+    const lists = req.fixedDays.map((ids) =>
+      ids
+        .map((id) => idxById.get(id))
+        .filter((i): i is number => i != null && !seen.has(i) && !!seen.add(i)),
+    )
+    days = fixedDays(lists, ctx)
+    active = lists.flat()
+    if (days.length > req.days) {
+      warnings.push(`Die Einteilung hat ${days.length} Tage – geplant sind ${req.days}.`)
     }
-    active = active.filter((i) => i !== victim)
+  } else {
+    active = stops.map((_, i) => i + 1)
+    for (;;) {
+      const order = orderStops(active, m, 0, endIdx)
+      days = autoDays(order, ctx)
+      if (days.length <= req.days) break
+      const victim = pickVictim(order, ctx)
+      if (victim == null) {
+        warnings.push(
+          `Die Must-dos brauchen ${days.length} Tage – mehr als die geplanten ${req.days}. ` +
+            'Mehr Tage einplanen, längere Tage erlauben oder Must-dos reduzieren.',
+        )
+        break
+      }
+      active = active.filter((i) => i !== victim)
+    }
   }
+
   const activeSet = new Set(active)
   const unscheduled = stops
     .map((s, i) => ({ s, idx: i + 1 }))
@@ -75,10 +101,12 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
   days.forEach((d, i) => {
     if (d.driveMin > req.maxDriveMin + 1) {
       warnings.push(`Tag ${i + 1}: lange Etappe (${Math.round(d.driveMin / 6) / 10} h unterwegs).`)
+    } else if (d.activeMin > req.dayMin + 30) {
+      warnings.push(`Tag ${i + 1} ist sehr voll (${Math.round(d.activeMin / 6) / 10} h aktiv).`)
     }
   })
 
-  // 5a. geometry per day
+  // 3. geometry per day
   let geometryFailed = false
   const geometries: LngLat[][] = []
   for (const d of days) {
@@ -95,12 +123,12 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
     geometries.push(geom)
   }
 
-  // Accommodations are loaded separately (/api/accommodations) because Overpass can be slow.
   const result: DayPlan[] = days.map((d, i) => {
     const to = pointOf(d.toIdx)
     return {
       day: i + 1,
       date: addDays(req.startDate, i),
+      rest: d.rest || undefined,
       from: pointOf(d.fromIdx),
       to,
       items: d.items,
@@ -126,6 +154,114 @@ export async function planRoute(req: PlanRequest, orsKey: string): Promise<PlanR
     warnings,
   }
 }
+
+// --- day building -------------------------------------------------------------
+
+function newDay(from: number): DraftDay {
+  return {
+    fromIdx: from,
+    toIdx: from,
+    stops: [],
+    items: [],
+    driveMin: 0,
+    km: 0,
+    activeMin: 0,
+    overnight: false,
+    rest: false,
+  }
+}
+
+function addDrive(day: DraftDay, from: number, to: number, { m }: Ctx) {
+  const d = m.dur[from]![to]!
+  const km = m.km[from]![to]!
+  if (d < 0.5) return
+  day.items.push({ type: 'drive', min: Math.round(d), km: Math.round(km * 10) / 10 })
+  day.driveMin += d
+  day.activeMin += d
+  day.km += km
+}
+
+function addStop(day: DraftDay, s: number, { req, visit }: Ctx) {
+  const stop = req.stops[s - 1]!
+  const v = visit(s)
+  day.items.push({
+    type: 'stop',
+    id: stop.id,
+    title: stop.title,
+    category: stop.category,
+    visitMin: v,
+    lng: stop.lng,
+    lat: stop.lat,
+  })
+  day.stops.push(s)
+  day.activeMin += v
+}
+
+/** Fill days greedily along the given order. */
+function autoDays(order: number[], ctx: Ctx): DraftDay[] {
+  const { req, m, endIdx, visit } = ctx
+  const days: DraftDay[] = []
+  let cur = newDay(0)
+  let prev = 0
+  const fits = (d: number, v: number) => cur.activeMin + d + v <= req.dayMin && cur.driveMin + d <= req.maxDriveMin
+  const close = (at: number, overnight: boolean) => {
+    cur.toIdx = at
+    cur.overnight = overnight
+    days.push(cur)
+  }
+
+  for (const s of order) {
+    if (cur.stops.length && !fits(m.dur[prev]![s]!, visit(s))) {
+      close(prev, true)
+      cur = newDay(prev)
+    }
+    addDrive(cur, prev, s, ctx)
+    addStop(cur, s, ctx)
+    prev = s
+  }
+  if (prev !== endIdx) {
+    if (cur.stops.length && !fits(m.dur[prev]![endIdx]!, 0)) {
+      close(prev, true)
+      cur = newDay(prev)
+    }
+    addDrive(cur, prev, endIdx, ctx)
+  }
+  close(endIdx, false)
+  return days
+}
+
+/** Keep the manual day assignment; empty days (except the last) are rest days. */
+function fixedDays(lists: number[][], ctx: Ctx): DraftDay[] {
+  const { m, endIdx } = ctx
+  const days: DraftDay[] = []
+  let from = 0
+  lists.forEach((list, di) => {
+    const isLast = di === lists.length - 1
+    const nextAnchor = lists.slice(di + 1).find((l) => l.length)?.[0] ?? endIdx
+    const ordered = list.length > 1 ? orderStops(list, m, from, isLast ? endIdx : nextAnchor) : list
+    const day = newDay(from)
+    let prev = from
+    for (const s of ordered) {
+      addDrive(day, prev, s, ctx)
+      addStop(day, s, ctx)
+      prev = s
+    }
+    if (isLast) {
+      addDrive(day, prev, endIdx, ctx)
+      day.toIdx = endIdx
+      day.overnight = false
+    } else {
+      day.toIdx = prev
+      day.overnight = true
+      day.rest = ordered.length === 0
+    }
+    days.push(day)
+    from = prev
+  })
+  return days
+}
+
+// --- ordering -------------------------------------------------------------------
 
 function pathCost(path: number[], m: Matrix) {
   let c = 0
@@ -172,86 +308,8 @@ function orderStops(active: number[], m: Matrix, start: number, end: number): nu
   return path.slice(1, -1)
 }
 
-function splitDays(
-  order: number[],
-  m: Matrix,
-  req: PlanRequest,
-  visit: (i: number) => number,
-  endIdx: number,
-): DraftDay[] {
-  const days: DraftDay[] = []
-  const newDay = (from: number): DraftDay => ({
-    fromIdx: from,
-    toIdx: from,
-    stops: [],
-    items: [],
-    driveMin: 0,
-    km: 0,
-    activeMin: 0,
-    overnight: false,
-  })
-  let cur = newDay(0)
-  let prev = 0
-  const fits = (d: number, v: number) => cur.activeMin + d + v <= req.dayMin && cur.driveMin + d <= req.maxDriveMin
-  const drive = (from: number, to: number) => {
-    const d = m.dur[from]![to]!
-    const km = m.km[from]![to]!
-    if (d < 0.5) return
-    cur.items.push({ type: 'drive', min: Math.round(d), km: Math.round(km * 10) / 10 })
-    cur.driveMin += d
-    cur.activeMin += d
-    cur.km += km
-  }
-  const closeDay = (at: number, overnight: boolean) => {
-    cur.toIdx = at
-    cur.overnight = overnight
-    days.push(cur)
-  }
-
-  for (const s of order) {
-    const d = m.dur[prev]![s]!
-    const v = visit(s)
-    if (cur.stops.length && !fits(d, v)) {
-      closeDay(prev, true)
-      cur = newDay(prev)
-    }
-    drive(prev, s)
-    const stop = req.stops[s - 1]!
-    cur.items.push({
-      type: 'stop',
-      id: stop.id,
-      title: stop.title,
-      category: stop.category,
-      visitMin: v,
-      lng: stop.lng,
-      lat: stop.lat,
-    })
-    cur.stops.push(s)
-    cur.activeMin += v
-    prev = s
-  }
-
-  // last leg to the end point
-  if (prev !== endIdx) {
-    const d = m.dur[prev]![endIdx]!
-    if (cur.stops.length && !fits(d, 0)) {
-      closeDay(prev, true)
-      cur = newDay(prev)
-    }
-    drive(prev, endIdx)
-  }
-  closeDay(endIdx, false)
-  return days
-}
-
 /** Least popular non-must-do stop; ties broken by how much time removing it saves. */
-function pickVictim(
-  order: number[],
-  m: Matrix,
-  req: PlanRequest,
-  visit: (i: number) => number,
-  endIdx: number,
-): number | null {
+function pickVictim(order: number[], { req, m, endIdx, visit }: Ctx): number | null {
   const path = [0, ...order, endIdx]
   let best: { idx: number; score: number; saving: number } | null = null
   for (let p = 1; p < path.length - 1; p++) {

@@ -45,6 +45,20 @@ Für echte Fahrzeiten und Straßenverläufe einen kostenlosen Key auf
 eintragen (bleibt auf dem Server). Ohne Key schätzt der Planer Zeiten aus der Luftlinie.
 Unterkünfte kommen aus OpenStreetMap (Overpass API), dazu Such-Links zu Booking.com und Airbnb.
 
+## Online stellen (Vercel)
+
+1. Auf [vercel.com](https://vercel.com) mit GitHub anmelden → **Add New → Project** → Repo
+   `discoverWithFriends` importieren. Framework „Nuxt“ wird erkannt, Build-Einstellungen bleiben Standard.
+2. Unter **Environment Variables** eintragen (Werte wie in `.env`):
+   `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`, `NUXT_PUBLIC_MAPTILER_KEY`,
+   optional `NUXT_ORS_API_KEY`.
+3. **Deploy**. Jeder Push auf `main` deployt danach automatisch.
+4. Die neue Adresse (z. B. `https://discover-with-friends.vercel.app`) eintragen:
+   - Supabase → Authentication → URL Configuration: als **Site URL** und `https://…vercel.app/**` als Redirect URL
+     (`http://localhost:3000/**` für die Entwicklung drinlassen)
+   - Google Cloud → Clients → Web-Client: unter **Authorized JavaScript origins**
+   - MapTiler → API-Key: Domain unter „Allowed HTTP origins“ (optional, schützt das Kontingent)
+
 ## Datenmodell
 
 | Tabelle | Inhalt |
@@ -74,6 +88,7 @@ supabase/migrations SQL-Schema
 - [x] v1: Reise, Einladungslink, Pins mit Kategorien, Votes, Filter, Live-Sync
 - [x] Dashboard mit eigenen und geteilten Reisen, Login mit E-Mail oder Google
 - [x] v2: Routenplaner (Reihenfolge, Tagesetappen, Fahrzeiten via OpenRouteService) + Unterkünfte aus OSM mit Buchungslinks
-- [ ] Gemischter Verkehr: Etappen-Verkehrsmittel, Fähren (CalMac), Links zu ScotRail/Traveline
+- [x] Route von Hand anpassen (Stopps verschieben, Ruhetage), Übernachtungsort mit den meisten Unterkünften in der Nähe
+- [ ] Gemischter Verkehr: Etappen-Verkehrsmittel, Links zu ScotRail/Traveline (Fähren deckt OpenRouteService mit Key ab)
 - [ ] Wanderungen als Linien / GPX-Upload
 - [ ] Richtige Accounts (anonyme Nutzer per E-Mail verknüpfen), Datenschutz, Englisch
