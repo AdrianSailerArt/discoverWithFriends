@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CATEGORIES, CATEGORY_KEYS } from '~/lib/constants'
 import { googleMapsUrl } from '~/lib/placeInfo'
+import { directionsUrl, trailLink } from '~/lib/trailLinks'
 import { todayIso } from '~/lib/dates'
 import { phaseOf, tripRange } from '~/lib/today'
 import type { Place } from '~/lib/geo'
@@ -178,6 +179,7 @@ function toggleCat(c: Category) {
 // --- selection / editing ----------------------------------------------------
 const selectedId = ref<string | null>(null)
 const selected = computed(() => ideas.value.find((i) => i.id === selectedId.value) ?? null)
+const selectedTrail = computed(() => trailLink(selected.value?.url))
 
 const awaitingPick = ref(false)
 const draft = ref<IdeaInput | null>(null)
@@ -431,7 +433,10 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
               :my-id="userId"
               @vote="(v) => vote(selected!.id, v)"
             />
-            <button class="btn small" @click="showView('ideas')">Details</button>
+            <span class="row mini-actions">
+              <a v-if="selectedTrail" class="btn small" :href="selectedTrail.url" target="_blank" rel="noopener noreferrer">🥾 {{ selectedTrail.name }}</a>
+              <button class="btn small" @click="showView('ideas')">Details</button>
+            </span>
           </div>
         </div>
       </section>
@@ -526,7 +531,20 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
             @vote="(v) => vote(selected!.id, v)"
           />
           <p v-if="selected.note" class="note">{{ selected.note }}</p>
-          <p v-if="selected.url">
+          <div v-if="selectedTrail" class="trail">
+            <div class="row">
+              <a class="btn primary small" :href="selectedTrail.url" target="_blank" rel="noopener noreferrer">
+                🥾 {{ selectedTrail.isTour ? 'Tour' : 'Link' }} in {{ selectedTrail.name }} öffnen
+              </a>
+              <a class="btn small" :href="directionsUrl(selected.lat, selected.lng)" target="_blank" rel="noopener noreferrer">
+                🚗 Anfahrt zum Start
+              </a>
+            </div>
+            <p class="muted small-note">
+              Die Navigation auf dem Weg läuft in der {{ selectedTrail.name }}-App – auf dem Handy öffnet der Link sie direkt.
+            </p>
+          </div>
+          <p v-else-if="selected.url">
             <a :href="selected.url" target="_blank" rel="noopener noreferrer">{{ selected.url }}</a>
           </p>
           <PlaceInfoCard :key="selected.id" :name="selected.title" :lat="selected.lat" :lng="selected.lng" />
@@ -584,6 +602,7 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
                   <span class="row muted by">
                     <span class="dot" :style="{ background: authorColor(i) }" /> {{ authorName(i) }}
                     <template v-if="i.duration_min"> · {{ formatHours(i.duration_min) }}</template>
+                    <span v-if="trailLink(i.url)" class="trail-tag">🥾 {{ trailLink(i.url)!.name }}</span>
                   </span>
                 </div>
                 <VoteBar
@@ -889,6 +908,23 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 }
 .note {
   white-space: pre-wrap;
+}
+.trail {
+  display: grid;
+  gap: 6px;
+}
+.small-note {
+  font-size: 0.8rem;
+}
+.trail-tag {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  font-size: 0.72rem;
+  color: var(--text);
+}
+.mini-actions {
+  gap: 6px;
 }
 .detail a {
   word-break: break-all;

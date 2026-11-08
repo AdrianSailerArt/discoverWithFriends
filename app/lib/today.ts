@@ -25,6 +25,8 @@ export interface TimelineEntry {
   booking?: Booking
   /** idea id for route stops */
   ideaId?: string
+  /** link saved with the idea (e.g. a Komoot tour) */
+  url?: string
 }
 
 export interface TripRange {
@@ -138,6 +140,7 @@ export function buildDay(data: TripData, date: string | null, dayNo: number): Da
           lng: it.lng,
           lat: it.lat,
           ideaId: it.id,
+          url: data.ideas.find((i) => i.id === it.id)?.url ?? undefined,
         })
         t += it.visitMin
       }

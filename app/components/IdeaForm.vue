@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { CATEGORIES, CATEGORY_KEYS } from '~/lib/constants'
+import { trailLink } from '~/lib/trailLinks'
 import type { IdeaInput } from '~/lib/types'
 
 defineProps<{ editing: boolean; saving: boolean; error: string | null }>()
 const emit = defineEmits<{ save: []; cancel: [] }>()
 const draft = defineModel<IdeaInput>('draft', { required: true })
+
+const trail = computed(() => trailLink(draft.value.url))
+// a pasted tour link is almost always a hike
+watch(
+  () => trail.value?.isTour,
+  (isTour, was) => {
+    if (isTour && !was && draft.value.category === 'sight') draft.value.category = 'hike'
+  },
+)
 
 const hours = computed({
   get: () => (draft.value.duration_min == null ? '' : String(draft.value.duration_min / 60)),
@@ -40,7 +50,9 @@ const hours = computed({
     </label>
     <label>
       Link
-      <input v-model="draft.url" type="url" maxlength="2000" placeholder="https://…" />
+      <input v-model="draft.url" type="url" maxlength="2000" placeholder="https://… – z. B. Komoot- oder Bergfex-Tour" />
+      <span v-if="trail" class="hint">✓ {{ trail.name }}{{ trail.isTour ? '-Tour' : '-Link' }} erkannt – lässt sich später direkt in der App öffnen.</span>
+      <span v-else class="hint">Tipp: Wanderung in Komoot oder Bergfex teilen und den Link hier einfügen. Den Pin auf den Startpunkt setzen.</span>
     </label>
     <p v-if="error" class="error">{{ error }}</p>
     <div class="row">
@@ -96,6 +108,10 @@ const hours = computed({
   .form > .notice {
     display: none;
   }
+}
+.hint {
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 .cat:has(input:focus-visible) {
   outline: 2px solid var(--accent);

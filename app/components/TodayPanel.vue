@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { addDays, daysBetween, fmtDay, fmtDuration, minToTime, todayIso } from '~/lib/dates'
 import { buildDay, phaseOf, tripRange, type TimelineEntry } from '~/lib/today'
+import { trailLink } from '~/lib/trailLinks'
 import type { Booking, BookingFile, Member, TripData } from '~/lib/types'
 
 const props = defineProps<{
@@ -206,13 +207,18 @@ const timeLabel = (e: TimelineEntry) => (e.time == null ? '' : minToTime(e.time)
                 <span v-else-if="statuses[e.key] === 'next'" class="tag">als Nächstes</span>
               </div>
               <span v-if="detail(e)" class="muted small">{{ detail(e) }}</span>
-              <div v-if="e.booking?.confirmation_code || e.booking?.files.length || e.lat != null" class="row acts">
+              <div v-if="e.booking?.confirmation_code || e.booking?.files.length || e.lat != null || e.url" class="row acts">
+                <a v-if="trailLink(e.url)" class="chip trail" :href="trailLink(e.url)!.url" target="_blank" rel="noopener noreferrer">
+                  🥾 {{ trailLink(e.url)!.name }}
+                </a>
                 <button v-if="e.booking?.confirmation_code" class="chip code" @click="copy(e.booking!)">
                   #{{ e.booking.confirmation_code }} {{ copied === e.booking.id ? '✓' : '⧉' }}
                 </button>
                 <button v-for="f in e.booking?.files ?? []" :key="f.id" class="chip" @click="openFile(f)">📄 {{ f.name }}</button>
                 <button v-if="e.lat != null && e.lng != null" class="chip" @click="emit('focus', e.lng, e.lat)">🗺️ Karte</button>
-                <a v-if="e.type !== 'drive'" class="chip" :href="navUrl(e)" target="_blank" rel="noopener noreferrer">🧭 Navigation</a>
+                <a v-if="e.type !== 'drive'" class="chip" :href="navUrl(e)" target="_blank" rel="noopener noreferrer">
+                  🧭 {{ trailLink(e.url) ? 'Anfahrt' : 'Navigation' }}
+                </a>
                 <button v-if="e.type === 'night' && !e.booking" class="chip" @click="emit('open', 'bookings')">+ Buchung</button>
               </div>
             </div>
@@ -458,6 +464,10 @@ const timeLabel = (e: TimelineEntry) => (e.time == null ? '' : minToTime(e.time)
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text);
+}
+.chip.trail {
+  border-color: var(--accent);
+  font-weight: 700;
 }
 .chip.code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
