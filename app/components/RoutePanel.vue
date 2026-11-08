@@ -11,7 +11,7 @@ import {
   type RouteParams,
 } from '#shared/plan'
 import { CATEGORIES, REGIONS, dayColor } from '~/lib/constants'
-import { searchPlaces, type Place } from '~/lib/geo'
+import { reverseGeocode, searchPlaces, type Place } from '~/lib/geo'
 import type { Category, Idea, Member, TripData, Vote } from '~/lib/types'
 
 const props = defineProps<{
@@ -29,10 +29,34 @@ const plan = computed(() => route.value?.plan ?? null)
 const ideasById = computed(() => new Map(props.data.ideas.map((i) => [i.id, i])))
 
 // --- settings form ----------------------------------------------------------
+// "Zuhause" is remembered per browser – everybody may live somewhere else
+const HOME_KEY = 'dwf:home'
+function readHome(): PlanPoint | null {
+  try {
+    const raw = localStorage.getItem(HOME_KEY)
+    return raw ? (JSON.parse(raw) as PlanPoint) : null
+  } catch {
+    return null
+  }
+}
+const home = ref<PlanPoint | null>(readHome())
+function saveHome(p: PlanPoint) {
+  home.value = { ...p, label: p.label }
+  try {
+    localStorage.setItem(HOME_KEY, JSON.stringify(home.value))
+  } catch {
+    // storage unavailable: remembered for this visit only
+  }
+}
+const samePoint = (a: PlanPoint | null, b: PlanPoint | null) =>
+  !!a && !!b && Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5
+/** suggestion for the quick-picked regions (e.g. the airport) – never forced */
+const regionStart = computed(() => REGIONS.find((r) => r.name === props.data.trip.region)?.start ?? null)
+
 function defaults(): RouteParams {
-  const region = REGIONS.find((r) => r.name === props.data.trip.region)
   return {
-    start: region ? { ...region.start } : null,
+    // start wherever you like: at home if known, otherwise chosen by the user
+    start: home.value ? { ...home.value } : null,
     end: null,
     roundTrip: true,
     days: props.data.trip.days ?? 7,
@@ -56,23 +80,44 @@ const pick = reactive({ target: null as 'start' | 'end' | null, query: '', resul
 async function searchPick() {
   pick.busy = true
   try {
-    pick.results = await searchPlaces(pick.query, cfg.maptilerKey, {
-      lng: props.data.trip.center_lng,
-      lat: props.data.trip.center_lat,
-    })
+    // the start is often far away from the trip region (e.g. at home) – don't bias the search there
+    const near = pick.target === 'end' ? { lng: props.data.trip.center_lng, lat: props.data.trip.center_lat } : undefined
+    pick.results = await searchPlaces(pick.query, cfg.maptilerKey, near)
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
     pick.busy = false
   }
 }
-function choosePick(p: Place) {
-  const point: PlanPoint = { label: p.name, lng: p.lng, lat: p.lat }
+function setPoint(point: PlanPoint) {
   if (pick.target === 'start') form.start = point
   else form.end = point
   pick.target = null
   pick.query = ''
   pick.results = []
+}
+function choosePick(p: Place) {
+  // "Marienplatz, 80331 München" instead of just "Marienplatz"
+  const parts = p.label.split(',').map((x) => x.trim())
+  const label = parts[0] === p.name && parts[1] ? `${p.name}, ${parts[1]}` : p.name
+  setPoint({ label, lng: p.lng, lat: p.lat })
+}
+const locating = ref(false)
+function useMyLocation() {
+  if (!navigator.geolocation) return void (error.value = 'Dein Browser kann den Standort nicht bestimmen.')
+  locating.value = true
+  navigator.geolocation.getCurrentPosition(
+    async ({ coords }) => {
+      const here = await reverseGeocode(coords.longitude, coords.latitude, cfg.maptilerKey).catch(() => null)
+      locating.value = false
+      setPoint({ label: here?.name ?? 'Mein Standort', lng: coords.longitude, lat: coords.latitude })
+    },
+    (e) => {
+      locating.value = false
+      error.value = e.code === e.PERMISSION_DENIED ? 'Standortzugriff wurde nicht erlaubt.' : 'Standort konnte nicht bestimmt werden.'
+    },
+    { enableHighAccuracy: false, timeout: 15000 },
+  )
 }
 
 // --- compute ----------------------------------------------------------------
@@ -336,9 +381,19 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
         <div class="field">
           <span class="lbl">Start</span>
           <div class="row">
-            <span class="point">{{ form.start?.label ?? '–' }}</span>
-            <button type="button" class="btn small" @click="pick.target = pick.target === 'start' ? null : 'start'">Ändern</button>
+            <span class="point">{{ form.start ? `${samePoint(form.start, home) ? '🏠 ' : ''}${form.start.label}` : 'Noch kein Start – z. B. bei euch zuhause' }}</span>
+            <button type="button" class="btn small" @click="pick.target = pick.target === 'start' ? null : 'start'">
+              {{ form.start ? 'Ändern' : 'Wählen' }}
+            </button>
           </div>
+          <button
+            v-if="form.start && !samePoint(form.start, home) && pick.target !== 'start'"
+            type="button"
+            class="link-btn"
+            @click="saveHome(form.start)"
+          >
+            🏠 Als mein Zuhause merken
+          </button>
         </div>
         <label class="check"><input v-model="form.roundTrip" type="checkbox" /> Rundreise (zurück zum Start)</label>
         <div v-if="!form.roundTrip" class="field">
@@ -349,11 +404,20 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
           </div>
         </div>
         <div v-if="pick.target" class="picker">
+          <div class="quickpicks">
+            <button v-if="home" type="button" class="qp" @click="setPoint({ ...home })">🏠 Zuhause <span class="muted">{{ home.label }}</span></button>
+            <button type="button" class="qp" :disabled="locating" @click="useMyLocation">
+              📍 {{ locating ? 'Suche Standort…' : 'Mein Standort' }}
+            </button>
+            <button v-if="pick.target === 'start' && regionStart" type="button" class="qp" @click="setPoint({ ...regionStart })">
+              ✈️ {{ regionStart.label }}
+            </button>
+          </div>
           <div class="row nowrap">
             <input
               v-model="pick.query"
               type="search"
-              :placeholder="pick.target === 'start' ? 'Startort suchen' : 'Zielort suchen'"
+              :placeholder="pick.target === 'start' ? 'Adresse, Ort oder Bahnhof – z. B. deine Straße' : 'Zielort suchen'"
               @keydown.enter.prevent="searchPick"
             />
             <button type="button" class="btn" :disabled="pick.busy" @click="searchPick">Suchen</button>
@@ -613,6 +677,32 @@ const createdBy = computed(() => (route.value ? props.membersById[route.value.cr
 .tight {
   gap: 2px;
   flex-wrap: nowrap;
+}
+.quickpicks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.qp {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qp .muted {
+  font-weight: 400;
+}
+.qp:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .picker {
   display: grid;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { REGIONS } from '~/lib/constants'
+import { searchPlaces, zoomForPlace, type Place } from '~/lib/geo'
 import type { TripSummary } from '~/lib/types'
 
 const backend = useBackend()
@@ -14,14 +15,54 @@ const mine = computed(() => trips.value.filter((t) => t.created_by === userId.va
 const shared = computed(() => trips.value.filter((t) => t.created_by !== userId.value))
 
 const showCreate = ref(false)
+const cfg = useRuntimeConfig().public
 const form = reactive({
   name: '',
-  region: REGIONS[0]!.name,
   start_date: '',
   days: 10,
   display_name: authUser.value?.name ?? '',
 })
 const saving = ref(false)
+
+// --- destination: any place on earth (quick picks or search) --------------------
+interface Destination {
+  name: string
+  label: string
+  lng: number
+  lat: number
+  zoom: number
+}
+const dest = ref<Destination | null>(null)
+const destQuery = ref('')
+const destResults = ref<Place[]>([])
+const destBusy = ref(false)
+const destError = ref<string | null>(null)
+
+function pickRegion(r: (typeof REGIONS)[number]) {
+  dest.value = { name: r.name, label: r.name, lng: r.lng, lat: r.lat, zoom: r.zoom }
+  destResults.value = []
+  destQuery.value = ''
+}
+function pickPlace(p: Place) {
+  dest.value = { name: p.name, label: p.label, lng: p.lng, lat: p.lat, zoom: zoomForPlace(p) }
+  destResults.value = []
+  destQuery.value = ''
+}
+async function searchDest() {
+  if (!destQuery.value.trim()) return []
+  destBusy.value = true
+  destError.value = null
+  try {
+    destResults.value = await searchPlaces(destQuery.value, cfg.maptilerKey)
+    if (!destResults.value.length) destError.value = 'Nichts gefunden – versuch es mit einem anderen Namen.'
+    return destResults.value
+  } catch (e) {
+    destError.value = errorMessage(e)
+    return []
+  } finally {
+    destBusy.value = false
+  }
+}
 
 async function load() {
   try {
@@ -40,7 +81,16 @@ onMounted(async () => {
 })
 
 async function create() {
-  const region = REGIONS.find((r) => r.name === form.region) ?? REGIONS[0]!
+  // typed a place but didn't pick from the list: take the best match
+  if (!dest.value && destQuery.value.trim()) {
+    const [first] = await searchDest()
+    if (first) pickPlace(first)
+  }
+  const region = dest.value
+  if (!region) {
+    destError.value = 'Wohin geht die Reise? Wähle ein Ziel oder such nach einem Ort.'
+    return
+  }
   saving.value = true
   error.value = null
   try {
@@ -129,15 +179,40 @@ function dateRange(t: TripSummary) {
         </div>
         <label>
           Name der Reise
-          <input v-model="form.name" required maxlength="120" placeholder="Schottland 2027" />
+          <input v-model="form.name" required maxlength="120" placeholder="z. B. Sommer am Gardasee" />
         </label>
+        <div class="field">
+          <span class="lbl">Wohin geht's?</span>
+          <div v-if="dest" class="dest">
+            <span>📍 <strong>{{ dest.name }}</strong> <span v-if="dest.label !== dest.name" class="muted small">{{ dest.label }}</span></span>
+            <button type="button" class="btn small" @click="dest = null">Ändern</button>
+          </div>
+          <template v-else>
+            <div class="row nowrap">
+              <input
+                v-model="destQuery"
+                type="search"
+                placeholder="Land, Region oder Ort – z. B. Gardasee, Bretagne, Japan"
+                aria-label="Reiseziel suchen"
+                @keydown.enter.prevent="searchDest"
+              />
+              <button type="button" class="btn" :disabled="destBusy || !destQuery.trim()" @click="searchDest">
+                {{ destBusy ? '…' : 'Suchen' }}
+              </button>
+            </div>
+            <div v-if="destResults.length" class="results">
+              <button v-for="(r, i) in destResults" :key="i" type="button" class="result" @click="pickPlace(r)">
+                <strong>{{ r.name }}</strong> <span class="muted">{{ r.label }}</span>
+              </button>
+            </div>
+            <div class="quick">
+              <span class="muted small">Schnellwahl:</span>
+              <button v-for="r in REGIONS" :key="r.name" type="button" class="chip" @click="pickRegion(r)">{{ r.name }}</button>
+            </div>
+          </template>
+          <p v-if="destError" class="error small">{{ destError }}</p>
+        </div>
         <div class="grid2">
-          <label>
-            Region
-            <select v-model="form.region">
-              <option v-for="r in REGIONS" :key="r.name">{{ r.name }}</option>
-            </select>
-          </label>
           <label>
             Dein Name in dieser Reise
             <input v-model="form.display_name" required maxlength="40" placeholder="z. B. Adrian" />
@@ -241,6 +316,67 @@ function dateRange(t: TripSummary) {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+.field {
+  display: grid;
+  gap: 6px;
+}
+.lbl {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.nowrap {
+  flex-wrap: nowrap;
+}
+.small {
+  font-size: 0.8rem;
+}
+.dest {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--accent-soft);
+}
+.results {
+  display: grid;
+  border: 1px solid var(--border);
+}
+.result {
+  display: block;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.result:hover {
+  background: var(--accent-soft);
+}
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .top h1 {
   margin: 0;

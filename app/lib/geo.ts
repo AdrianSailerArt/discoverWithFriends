@@ -5,6 +5,16 @@ export interface Place {
   label: string
   lng: number
   lat: number
+  /** [west, south, east, north] when the geocoder knows the extent (regions, countries …) */
+  bbox?: [number, number, number, number]
+}
+
+/** Map zoom that roughly fits a place's extent (used when creating a trip). */
+export function zoomForPlace(p: Place): number {
+  if (!p.bbox) return 9
+  const [w, s, e, n] = p.bbox
+  const span = Math.max(Math.abs(e - w), Math.abs(n - s) * 1.6, 0.01)
+  return Math.min(12, Math.max(3, Math.log2(360 / span) - 0.3))
 }
 
 export function mapStyle(maptilerKey: string): string | StyleSpecification {
@@ -138,9 +148,9 @@ export async function searchPlaces(
     const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?${params}`)
     if (!res.ok) throw new Error(`Suche fehlgeschlagen (${res.status})`)
     const json = (await res.json()) as {
-      features: { text: string; place_name: string; center: [number, number] }[]
+      features: { text: string; place_name: string; center: [number, number]; bbox?: [number, number, number, number] }[]
     }
-    return json.features.map((f) => ({ name: f.text, label: f.place_name, lng: f.center[0], lat: f.center[1] }))
+    return json.features.map((f) => ({ name: f.text, label: f.place_name, lng: f.center[0], lat: f.center[1], bbox: f.bbox }))
   }
 
   // Nominatim fallback (max. 1 request/s – we only search on submit).
@@ -151,11 +161,16 @@ export async function searchPlaces(
   }
   const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`)
   if (!res.ok) throw new Error(`Suche fehlgeschlagen (${res.status})`)
-  const json = (await res.json()) as { name: string; display_name: string; lat: string; lon: string }[]
-  return json.map((r) => ({
-    name: r.name || r.display_name.split(',')[0]!,
-    label: r.display_name,
-    lng: Number(r.lon),
-    lat: Number(r.lat),
-  }))
+  const json = (await res.json()) as { name: string; display_name: string; lat: string; lon: string; boundingbox?: string[] }[]
+  return json.map((r) => {
+    // Nominatim: [south, north, west, east]
+    const b = r.boundingbox?.map(Number)
+    return {
+      name: r.name || r.display_name.split(',')[0]!,
+      label: r.display_name,
+      lng: Number(r.lon),
+      lat: Number(r.lat),
+      bbox: b && b.length === 4 && b.every(Number.isFinite) ? ([b[2]!, b[0]!, b[3]!, b[1]!] as [number, number, number, number]) : undefined,
+    }
+  })
 }
