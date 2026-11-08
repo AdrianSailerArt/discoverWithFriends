@@ -52,8 +52,22 @@ const hours = computed({
       Link
       <input v-model="draft.url" type="url" maxlength="2000" placeholder="https://… – z. B. Komoot- oder Bergfex-Tour" />
       <span v-if="trail" class="hint">✓ {{ trail.name }}{{ trail.isTour ? '-Tour' : '-Link' }} erkannt – lässt sich später direkt in der App öffnen.</span>
-      <span v-else class="hint">Tipp: Wanderung in Komoot oder Bergfex teilen und den Link hier einfügen. Den Pin auf den Startpunkt setzen.</span>
     </label>
+    <details v-if="!trail" class="tip">
+      <summary>💡 Tipp: Wanderungen aus Komoot oder Bergfex übernehmen</summary>
+      <ol>
+        <li>In Komoot oder Bergfex die Tour „Teilen“ und den Link kopieren.</li>
+        <li>Hier den Pin auf den Startpunkt bzw. Parkplatz setzen und den Link oben ins Feld „Link“ einfügen.</li>
+        <li>
+          Das Formular zeigt dann „✓ Komoot-Tour erkannt“ und stellt die Kategorie von „Sehenswürdigkeit“ auf
+          „Wanderung“ um, falls sie noch auf der Voreinstellung stand.
+        </li>
+      </ol>
+      <p class="muted">
+        Später öffnet „🥾 Tour in Komoot öffnen“ die Tour direkt in der App – dort läuft die Navigation auf dem Weg.
+        „🚗 Anfahrt zum Start“ führt per Google Maps zum Pin.
+      </p>
+    </details>
     <p v-if="error" class="error">{{ error }}</p>
     <div class="row">
       <button class="btn primary" :disabled="saving">{{ saving ? 'Speichere…' : 'Speichern' }}</button>
@@ -108,6 +122,26 @@ const hours = computed({
   .form > .notice {
     display: none;
   }
+}
+.tip {
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+}
+.tip summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.tip ol {
+  margin: 8px 0 6px;
+  padding-left: 1.3rem;
+  display: grid;
+  gap: 4px;
+}
+.tip p {
+  margin: 0;
+  font-size: 0.8rem;
 }
 .hint {
   font-size: 0.78rem;
