@@ -1,5 +1,5 @@
 import { memberColor } from './constants'
-import type { Backend, Expense, Idea, Member, Trip, TripRoute, Vote } from './types'
+import type { Backend, Booking, BookingFile, Expense, Idea, Member, PackingItem, Trip, TripRoute, Vote } from './types'
 
 /**
  * Demo backend that keeps everything in localStorage.
@@ -14,13 +14,16 @@ interface Db {
   votes: Vote[]
   routes: TripRoute[]
   expenses: Expense[]
+  packing: PackingItem[]
+  bookings: Omit<Booking, 'files'>[]
+  files: BookingFile[]
 }
 
 const DB_KEY = 'tripboard:demo-db'
 const USER_KEY = 'tripboard:demo-user'
 const LOCAL_EVENT = 'tripboard:demo-change'
 
-const empty = (): Db => ({ trips: [], members: [], ideas: [], votes: [], routes: [], expenses: [] })
+const empty = (): Db => ({ trips: [], members: [], ideas: [], votes: [], routes: [], expenses: [], packing: [], bookings: [], files: [] })
 
 function read(): Db {
   try {
@@ -54,6 +57,29 @@ function setStored(key: string, value: string) {
   } catch {
     // ignore
   }
+}
+
+// --- uploaded files: blobs live in IndexedDB (localStorage is too small) ----------
+const FILE_DB = 'tripboard-demo-files'
+
+function fileStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(FILE_DB, 1)
+    open.onupgradeneeded = () => open.result.createObjectStore('files')
+    open.onerror = () => reject(new Error('Dateispeicher im Browser nicht verfügbar.'))
+    open.onsuccess = () => {
+      const tx = open.result.transaction('files', mode)
+      const req = fn(tx.objectStore('files'))
+      tx.oncomplete = () => {
+        open.result.close()
+        resolve(req.result)
+      }
+      tx.onerror = () => {
+        open.result.close()
+        reject(new Error(tx.error?.message ?? 'Speichern fehlgeschlagen.'))
+      }
+    }
+  })
 }
 
 const now = () => new Date().toISOString()
@@ -122,7 +148,12 @@ export function createLocalBackend(): Backend {
       db.votes = db.votes.filter((v) => v.trip_id !== tripId)
       db.routes = db.routes.filter((r) => r.trip_id !== tripId)
       db.expenses = db.expenses.filter((e) => e.trip_id !== tripId)
+      const paths = db.files.filter((f) => f.trip_id === tripId).map((f) => f.path)
+      db.packing = db.packing.filter((p) => p.trip_id !== tripId)
+      db.bookings = db.bookings.filter((b) => b.trip_id !== tripId)
+      db.files = db.files.filter((f) => f.trip_id !== tripId)
       write(db)
+      for (const path of paths) await fileStore('readwrite', (st) => st.delete(path)).catch(() => {})
     },
 
     async leaveTrip(tripId) {
@@ -154,6 +185,83 @@ export function createLocalBackend(): Backend {
       const db = read()
       db.expenses = db.expenses.filter((e) => e.id !== id)
       write(db)
+    },
+
+    async addPackingItems(tripId, items) {
+      const db = read()
+      if (!isMember(db, tripId)) throw new Error('Kein Mitglied dieser Reise.')
+      for (const i of items) {
+        db.packing.push({ ...i, packed: false, id: crypto.randomUUID(), trip_id: tripId, created_by: uid(), created_at: now() })
+      }
+      write(db)
+    },
+
+    async updatePackingItem(id, patch) {
+      const db = read()
+      const item = db.packing.find((p) => p.id === id)
+      if (!item) throw new Error('Eintrag nicht gefunden.')
+      Object.assign(item, patch)
+      write(db)
+    },
+
+    async deletePackingItem(id) {
+      const db = read()
+      db.packing = db.packing.filter((p) => p.id !== id)
+      write(db)
+    },
+
+    async saveBooking(tripId, input, id) {
+      const db = read()
+      if (!isMember(db, tripId)) throw new Error('Kein Mitglied dieser Reise.')
+      if (id) {
+        const b = db.bookings.find((x) => x.id === id)
+        if (!b) throw new Error('Buchung nicht gefunden.')
+        Object.assign(b, input)
+      } else {
+        id = crypto.randomUUID()
+        db.bookings.push({ ...input, id, trip_id: tripId, created_by: uid(), created_at: now() })
+      }
+      write(db)
+      return id
+    },
+
+    async deleteBooking(booking) {
+      for (const f of booking.files) await fileStore('readwrite', (st) => st.delete(f.path)).catch(() => {})
+      const db = read()
+      db.bookings = db.bookings.filter((b) => b.id !== booking.id)
+      db.files = db.files.filter((f) => f.booking_id !== booking.id)
+      write(db)
+    },
+
+    async uploadBookingFile(tripId, bookingId, file) {
+      const path = `${tripId}/${bookingId}/${crypto.randomUUID()}`
+      await fileStore('readwrite', (st) => st.put(file, path))
+      const db = read()
+      db.files.push({
+        id: crypto.randomUUID(),
+        booking_id: bookingId,
+        trip_id: tripId,
+        name: file.name || 'Datei',
+        path,
+        size_bytes: file.size,
+        mime: file.type || 'application/octet-stream',
+        created_by: uid(),
+        created_at: now(),
+      })
+      write(db)
+    },
+
+    async deleteBookingFile(file) {
+      await fileStore('readwrite', (st) => st.delete(file.path)).catch(() => {})
+      const db = read()
+      db.files = db.files.filter((f) => f.id !== file.id)
+      write(db)
+    },
+
+    async bookingFileUrl(file) {
+      const blob = await fileStore<Blob | undefined>('readonly', (st) => st.get(file.path))
+      if (!blob) throw new Error('Datei nicht gefunden – im Demo-Modus liegt sie nur in dem Browser, in dem sie hochgeladen wurde.')
+      return URL.createObjectURL(blob)
     },
 
     async setTripCurrency(tripId, currency) {
@@ -222,6 +330,11 @@ export function createLocalBackend(): Backend {
         votes: db.votes.filter((v) => v.trip_id === tripId),
         route: db.routes.find((r) => r.trip_id === tripId) ?? null,
         expenses: db.expenses.filter((e) => e.trip_id === tripId),
+        packing: db.packing.filter((p) => p.trip_id === tripId),
+        bookings: db.bookings
+          .filter((b) => b.trip_id === tripId)
+          .sort((a, b) => a.starts_on.localeCompare(b.starts_on) || (a.start_time ?? '99').localeCompare(b.start_time ?? '99'))
+          .map((b) => ({ ...b, files: db.files.filter((f) => f.booking_id === b.id) })),
       }
     },
 

@@ -1,5 +1,21 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AuthUser, Backend, Expense, Idea, Member, Trip, TripPreview, TripRoute, Vote } from './types'
+import type { AuthUser, Backend, Booking, BookingFile, Expense, Idea, Member, PackingItem, Trip, TripPreview, TripRoute, Vote } from './types'
+
+const FILE_BUCKET = 'booking-files'
+
+/** Postgres `time` comes back as HH:MM:SS */
+const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null)
+
+function withFiles(rows: Omit<Booking, 'files'>[], files: BookingFile[]): Booking[] {
+  return rows.map((b) => ({
+    ...b,
+    start_time: hhmm(b.start_time),
+    end_time: hhmm(b.end_time),
+    files: files.filter((f) => f.booking_id === b.id),
+  }))
+}
+
+const fileExt = (name: string) => (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? 'bin').toLowerCase()
 
 function withParticipants(rows: Omit<Expense, 'participants'>[], parts: { expense_id: string; user_id: string }[]): Expense[] {
   const byExpense = new Map<string, string[]>()
@@ -172,6 +188,69 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       ) as Trip
     },
 
+    async addPackingItems(tripId, items) {
+      if (!items.length) return
+      check(await sb.from('packing_items').insert(items.map((i) => ({ ...i, trip_id: tripId, created_by: userId }))))
+    },
+
+    async updatePackingItem(id, patch) {
+      check(await sb.from('packing_items').update(patch).eq('id', id))
+    },
+
+    async deletePackingItem(id) {
+      check(await sb.from('packing_items').delete().eq('id', id))
+    },
+
+    async saveBooking(tripId, input, id) {
+      if (id) {
+        check(await sb.from('bookings').update(input).eq('id', id))
+        return id
+      }
+      const row = check(
+        await sb.from('bookings').insert({ ...input, trip_id: tripId, created_by: userId }).select('id').single(),
+      ) as { id: string }
+      return row.id
+    },
+
+    async deleteBooking(booking) {
+      if (booking.files.length) {
+        const { error } = await sb.storage.from(FILE_BUCKET).remove(booking.files.map((f) => f.path))
+        if (error) throw new Error(error.message)
+      }
+      check(await sb.from('bookings').delete().eq('id', booking.id))
+    },
+
+    async uploadBookingFile(tripId, bookingId, file) {
+      const path = `${tripId}/${bookingId}/${crypto.randomUUID()}.${fileExt(file.name)}`
+      const up = await sb.storage.from(FILE_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false })
+      if (up.error) throw new Error(up.error.message)
+      const res = await sb.from('booking_files').insert({
+        booking_id: bookingId,
+        trip_id: tripId,
+        name: file.name.slice(0, 255) || 'Datei',
+        path,
+        size_bytes: file.size,
+        mime: file.type || 'application/octet-stream',
+        created_by: userId,
+      })
+      if (res.error) {
+        await sb.storage.from(FILE_BUCKET).remove([path])
+        throw new Error(res.error.message)
+      }
+    },
+
+    async deleteBookingFile(file) {
+      const { error } = await sb.storage.from(FILE_BUCKET).remove([file.path])
+      if (error) throw new Error(error.message)
+      check(await sb.from('booking_files').delete().eq('id', file.id))
+    },
+
+    async bookingFileUrl(file) {
+      const { data, error } = await sb.storage.from(FILE_BUCKET).createSignedUrl(file.path, 60 * 10)
+      if (error) throw new Error(error.message)
+      return data.signedUrl
+    },
+
     async previewInvite(code) {
       const rows = check(await sb.rpc('trip_preview', { p_code: code })) as TripPreview[]
       return rows[0] ?? null
@@ -182,7 +261,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     },
 
     async loadTrip(tripId) {
-      const [trip, members, ideas, votes, route, expenses, participants] = await Promise.all([
+      const [trip, members, ideas, votes, route, expenses, participants, packing, bookings, files] = await Promise.all([
         sb.from('trips').select('*').eq('id', tripId).maybeSingle(),
         sb.from('trip_members').select('*').eq('trip_id', tripId).order('joined_at'),
         sb
@@ -193,6 +272,9 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
         sb.from('trip_routes').select('*').eq('trip_id', tripId).maybeSingle(),
         sb.from('expenses').select('*').eq('trip_id', tripId).order('spent_on', { ascending: false }).order('created_at', { ascending: false }),
         sb.from('expense_participants').select('expense_id,user_id').eq('trip_id', tripId),
+        sb.from('packing_items').select('*').eq('trip_id', tripId).order('created_at'),
+        sb.from('bookings').select('*').eq('trip_id', tripId).order('starts_on').order('start_time', { nullsFirst: false }),
+        sb.from('booking_files').select('*').eq('trip_id', tripId).order('created_at'),
       ])
       const t = check(trip) as Trip | null
       if (!t) return null
@@ -205,6 +287,9 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
         route: route.error ? null : (route.data as TripRoute | null),
         // tolerate missing expense tables (migration 0005 not run yet)
         expenses: expenses.error || participants.error ? null : withParticipants(expenses.data as Omit<Expense, 'participants'>[], participants.data as { expense_id: string; user_id: string }[]),
+        // tolerate missing tables (migration 0006 not run yet)
+        packing: packing.error ? null : (packing.data as PackingItem[]),
+        bookings: bookings.error || files.error ? null : withFiles(bookings.data as Omit<Booking, 'files'>[], files.data as BookingFile[]),
       }
     },
 
@@ -241,7 +326,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     subscribe(tripId, onChange) {
       const filter = `trip_id=eq.${tripId}`
       const channel = sb.channel(`trip:${tripId}`)
-      for (const table of ['ideas', 'votes', 'trip_members', 'trip_routes', 'expenses', 'expense_participants']) {
+      for (const table of ['ideas', 'votes', 'trip_members', 'trip_routes', 'expenses', 'expense_participants', 'packing_items', 'bookings', 'booking_files']) {
         channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter }, onChange)
         channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter }, onChange)
         // DELETE events cannot be filtered by column; refetch on any delete.

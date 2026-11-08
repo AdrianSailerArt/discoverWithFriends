@@ -41,6 +41,67 @@ export interface Expense {
 
 export type ExpenseInput = Pick<Expense, 'title' | 'amount_cents' | 'category' | 'kind' | 'paid_by' | 'spent_on' | 'participants'>
 
+export type PackCategory = 'docs' | 'clothes' | 'hygiene' | 'health' | 'tech' | 'gear' | 'food' | 'other'
+
+/** One entry of the shared packing list ("what do we need for the trip?") */
+export interface PackingItem {
+  id: string
+  trip_id: string
+  title: string
+  category: PackCategory
+  quantity: number
+  /** who brings it; null = not decided / everyone */
+  assigned_to: string | null
+  packed: boolean
+  created_by: string
+  created_at: string
+}
+
+export type PackingInput = Pick<PackingItem, 'title' | 'category' | 'quantity' | 'assigned_to'>
+
+export type BookingKind = 'stay' | 'transport' | 'activity' | 'other'
+
+/** Uploaded confirmation (PDF, screenshot, …) of a booking */
+export interface BookingFile {
+  id: string
+  booking_id: string
+  trip_id: string
+  /** original file name */
+  name: string
+  /** storage path: <trip>/<booking>/<uuid>.<ext> */
+  path: string
+  size_bytes: number
+  mime: string
+  created_by: string
+  created_at: string
+}
+
+/** A booked accommodation, ferry, flight, ticket … */
+export interface Booking {
+  id: string
+  trip_id: string
+  kind: BookingKind
+  title: string
+  /** check-in / departure date (YYYY-MM-DD) */
+  starts_on: string
+  /** HH:MM or null */
+  start_time: string | null
+  /** check-out / arrival date */
+  ends_on: string | null
+  end_time: string | null
+  address: string | null
+  lng: number | null
+  lat: number | null
+  confirmation_code: string | null
+  url: string | null
+  note: string | null
+  created_by: string
+  created_at: string
+  files: BookingFile[]
+}
+
+export type BookingInput = Omit<Booking, 'id' | 'trip_id' | 'created_by' | 'created_at' | 'files'>
+
 export interface Member {
   trip_id: string
   user_id: string
@@ -87,6 +148,10 @@ export interface TripData {
   route: TripRoute | null
   /** null = expenses not available (migration 0005 missing) */
   expenses: Expense[] | null
+  /** null = packing list not available (migration 0006 missing) */
+  packing: PackingItem[] | null
+  /** null = bookings not available (migration 0006 missing) */
+  bookings: Booking[] | null
 }
 
 /** Trip as shown on the dashboard */
@@ -150,6 +215,18 @@ export interface Backend {
   deleteExpense(id: string): Promise<void>
   /** Owner only */
   setTripCurrency(tripId: string, currency: string): Promise<void>
+  /** Packing list (any member may add, check off or remove items) */
+  addPackingItems(tripId: string, items: PackingInput[]): Promise<void>
+  updatePackingItem(id: string, patch: Partial<PackingInput & { packed: boolean }>): Promise<void>
+  deletePackingItem(id: string): Promise<void>
+  /** Bookings: create (id null) or update. Returns the id. */
+  saveBooking(tripId: string, input: BookingInput, id: string | null): Promise<string>
+  /** Deletes the booking including its uploaded files */
+  deleteBooking(booking: Booking): Promise<void>
+  uploadBookingFile(tripId: string, bookingId: string, file: File): Promise<void>
+  deleteBookingFile(file: BookingFile): Promise<void>
+  /** Short-lived URL to view/download a confirmation */
+  bookingFileUrl(file: BookingFile): Promise<string>
   previewInvite(code: string): Promise<TripPreview | null>
   joinTrip(code: string, displayName: string): Promise<string>
   loadTrip(tripId: string): Promise<TripData | null>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { CATEGORIES, CATEGORY_KEYS } from '~/lib/constants'
 import { googleMapsUrl } from '~/lib/placeInfo'
+import { todayIso } from '~/lib/dates'
+import { phaseOf, tripRange } from '~/lib/today'
 import type { Place } from '~/lib/geo'
 import type { Category, Idea, IdeaInput, Member, Vote, VoteValue } from '~/lib/types'
 
@@ -17,7 +19,8 @@ const mapRef = ref<{
 }>()
 
 // Sidebar tab
-const tab = ref<'ideas' | 'route' | 'costs'>('ideas')
+type Tab = 'today' | 'ideas' | 'route' | 'bookings' | 'packing' | 'costs'
+const tab = ref<Tab>('ideas')
 watch(tab, async (t) => {
   if (t === 'route') {
     await nextTick()
@@ -31,7 +34,7 @@ async function onRouteSaved() {
 }
 
 // --- mobile: one full-screen view at a time (map / ideas / route) ------------
-type MobileView = 'map' | 'ideas' | 'route' | 'costs'
+type MobileView = 'map' | Tab
 const isMobile = ref(false)
 const mobileView = ref<MobileView>('map')
 let mq: MediaQueryList | null = null
@@ -44,9 +47,37 @@ onMounted(() => {
 onBeforeUnmount(() => mq?.removeEventListener('change', onMediaChange))
 
 function showView(v: MobileView) {
+  moreOpen.value = false
   mobileView.value = v
   if (v !== 'map') tab.value = v
 }
+/** mobile: Buchungen / Packliste / Kosten live behind "Mehr" */
+const moreOpen = ref(false)
+const MORE_VIEWS: { view: Tab; icon: string; label: string }[] = [
+  { view: 'bookings', icon: '🛏️', label: 'Buchungen' },
+  { view: 'packing', icon: '🧳', label: 'Packliste' },
+  { view: 'costs', icon: '💶', label: 'Kosten' },
+]
+const inMore = computed(() => MORE_VIEWS.some((m) => m.view === mobileView.value))
+function openTab(t: Tab) {
+  tab.value = t
+  if (isMobile.value) showView(t)
+}
+
+// While the trip is on, open on "Heute"
+const traveling = computed(() => {
+  const r = data.value ? tripRange(data.value) : null
+  return !!r && phaseOf(r, todayIso()) === 'during'
+})
+const stopInitialTab = watch(data, (d) => {
+  if (!d) return
+  if (traveling.value) {
+    tab.value = 'today'
+    if (isMobile.value) mobileView.value = 'today'
+  }
+  stopInitialTab()
+})
+const packOpen = computed(() => (data.value?.packing ?? []).filter((p) => !p.packed).length)
 /** Fly to a spot; on mobile switch to the map first. */
 async function showOnMap(lng: number, lat: number, zoom?: number) {
   if (isMobile.value) mobileView.value = 'map'
@@ -364,28 +395,22 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 
       <aside class="side">
         <nav v-if="!draft" class="tabs" role="tablist">
-          <button
-            role="tab"
-            :aria-selected="tab === 'ideas'"
-            :class="{ active: tab === 'ideas' }"
-            @click="tab = 'ideas'"
-          >
+          <button role="tab" :aria-selected="tab === 'today'" :class="{ active: tab === 'today' }" @click="tab = 'today'">
+            📅 {{ traveling ? 'Heute' : 'Tage' }}
+          </button>
+          <button role="tab" :aria-selected="tab === 'ideas'" :class="{ active: tab === 'ideas' }" @click="tab = 'ideas'">
             💡 Ideen <span class="muted">{{ ideas.length }}</span>
           </button>
-          <button
-            role="tab"
-            :aria-selected="tab === 'route'"
-            :class="{ active: tab === 'route' }"
-            @click="tab = 'route'"
-          >
+          <button role="tab" :aria-selected="tab === 'route'" :class="{ active: tab === 'route' }" @click="tab = 'route'">
             🗺️ Route <span v-if="data.route" class="muted">{{ data.route.plan.days.length }} T</span>
           </button>
-          <button
-            role="tab"
-            :aria-selected="tab === 'costs'"
-            :class="{ active: tab === 'costs' }"
-            @click="tab = 'costs'"
-          >
+          <button role="tab" :aria-selected="tab === 'bookings'" :class="{ active: tab === 'bookings' }" @click="tab = 'bookings'">
+            🛏️ Buchungen <span v-if="data.bookings?.length" class="muted">{{ data.bookings.length }}</span>
+          </button>
+          <button role="tab" :aria-selected="tab === 'packing'" :class="{ active: tab === 'packing' }" @click="tab = 'packing'">
+            🧳 Packliste <span v-if="data.packing?.length" class="muted">{{ packOpen || '✓' }}</span>
+          </button>
+          <button role="tab" :aria-selected="tab === 'costs'" :class="{ active: tab === 'costs' }" @click="tab = 'costs'">
             💶 Kosten
           </button>
         </nav>
@@ -414,6 +439,29 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
           @saved="onRouteSaved"
           @focus="(lng, lat) => showOnMap(lng, lat, 10)"
         />
+
+        <!-- Today -->
+        <TodayPanel
+          v-else-if="tab === 'today'"
+          :data="data"
+          :members-by-id="membersById"
+          :my-id="userId"
+          @focus="(lng, lat) => showOnMap(lng, lat, 13)"
+          @open="openTab"
+        />
+
+        <!-- Bookings -->
+        <BookingsPanel
+          v-else-if="tab === 'bookings'"
+          :data="data"
+          :members-by-id="membersById"
+          :my-id="userId"
+          @saved="reload"
+          @focus="(lng, lat) => showOnMap(lng, lat, 14)"
+        />
+
+        <!-- Packing list -->
+        <PackingPanel v-else-if="tab === 'packing'" :data="data" :members-by-id="membersById" :my-id="userId" @saved="reload" />
 
         <!-- Costs -->
         <ExpensesPanel
@@ -515,9 +563,20 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
     </div>
 
     <!-- mobile bottom navigation -->
+    <div v-if="isMobile && moreOpen" class="more-backdrop" @click="moreOpen = false" />
+    <div v-if="isMobile && moreOpen" class="more card" role="menu">
+      <button v-for="m in MORE_VIEWS" :key="m.view" role="menuitem" :class="{ active: mobileView === m.view }" @click="showView(m.view)">
+        <span class="mnav-icon">{{ m.icon }}</span>{{ m.label }}
+        <small v-if="m.view === 'packing' && data.packing?.length" class="muted">{{ packOpen ? `${packOpen} offen` : 'alles gepackt' }}</small>
+        <small v-else-if="m.view === 'bookings' && data.bookings?.length" class="muted">{{ data.bookings.length }}</small>
+      </button>
+    </div>
     <nav v-if="isMobile" class="mnav" aria-label="Ansicht">
       <button :class="{ active: mobileView === 'map' }" :aria-pressed="mobileView === 'map'" @click="showView('map')">
         <span class="mnav-icon">🗺️</span>Karte
+      </button>
+      <button :class="{ active: mobileView === 'today' }" :aria-pressed="mobileView === 'today'" @click="showView('today')">
+        <span class="mnav-icon">📅</span>{{ traveling ? 'Heute' : 'Tage' }}
       </button>
       <button :class="{ active: mobileView === 'ideas' }" :aria-pressed="mobileView === 'ideas'" @click="showView('ideas')">
         <span class="mnav-icon">💡</span>Ideen <small>{{ ideas.length }}</small>
@@ -525,8 +584,13 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
       <button :class="{ active: mobileView === 'route' }" :aria-pressed="mobileView === 'route'" @click="showView('route')">
         <span class="mnav-icon">🧭</span>Route<small v-if="data.route">{{ data.route.plan.days.length }} T</small>
       </button>
-      <button :class="{ active: mobileView === 'costs' }" :aria-pressed="mobileView === 'costs'" @click="showView('costs')">
-        <span class="mnav-icon">💶</span>Kosten
+      <button
+        :class="{ active: inMore || moreOpen }"
+        :aria-expanded="moreOpen"
+        aria-haspopup="menu"
+        @click="moreOpen = !moreOpen"
+      >
+        <span class="mnav-icon">{{ inMore ? MORE_VIEWS.find((m) => m.view === mobileView)!.icon : '☰' }}</span>{{ inMore ? MORE_VIEWS.find((m) => m.view === mobileView)!.label : 'Mehr' }}
       </button>
     </nav>
   </div>
@@ -628,20 +692,19 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 .tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
   border: 1px solid var(--line);
+  background: var(--line);
 }
 .tabs button {
   border: 0;
-  background: none;
+  background: var(--surface);
   padding: 0.55rem;
   cursor: pointer;
   color: var(--muted);
   font-weight: 700;
   font-size: 0.85rem;
   letter-spacing: 0.02em;
-}
-.tabs button + button {
-  border-left: 1px solid var(--line);
 }
 .tabs button.active {
   background: var(--accent);
@@ -789,9 +852,43 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 .relocate {
   align-self: flex-start;
 }
+.more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+}
+.more {
+  position: fixed;
+  right: 8px;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  z-index: 7;
+  padding: 6px;
+  display: grid;
+  min-width: 220px;
+}
+.more button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+.more button small {
+  margin-left: auto;
+  font-weight: 500;
+}
+.more button.active {
+  background: var(--accent-soft);
+}
 .mnav {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--bg);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
