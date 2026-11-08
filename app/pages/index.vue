@@ -106,7 +106,7 @@ function dateRange(t: TripSummary) {
 <template>
   <div class="dash">
     <header class="top">
-      <h1>🧭 Tripboard</h1>
+      <h1><AppLogo :size="56" wordmark /></h1>
       <div v-if="backend.requiresAuth && authUser" class="account">
         <span class="muted">{{ authUser.name || authUser.email }}</span>
         <button class="btn small" @click="signOut">Abmelden</button>

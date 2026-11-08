@@ -147,7 +147,7 @@ async function queryOverpass(points: LngLat[]): Promise<Found[]> {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'Tripboard/0.1 (group trip planner)',
+          'User-Agent': 'discoverWithFriends/0.1 (group trip planner)',
         },
         timeout: 35000,
       })

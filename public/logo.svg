@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="discoverWithFriends">
+  <title>discoverWithFriends</title>
+  <style>
+    .line { stroke: #000; }
+    .pin { fill: #922625; }
+    @media (prefers-color-scheme: dark) {
+      .line { stroke: #f0f0f0; }
+      .pin { fill: #bf3230; }
+    }
+  </style>
+  <!-- the friend: offset outline pin (same offset as the outlined buttons in the app) -->
+  <path class="line" d="M26 61.5C26 61.5 7.5 41.5 7.5 29a18.5 18.5 0 0 1 37 0C44.5 41.5 26 61.5 26 61.5Z" fill="none" stroke-width="3" stroke-linejoin="round" />
+  <!-- you: filled pin with mountains, slightly tilted like the cards -->
+  <g transform="rotate(-4 34 30)">
+    <path class="line pin" d="M34 57C34 57 15.5 37 15.5 24.5a18.5 18.5 0 0 1 37 0C52.5 37 34 57 34 57Z" stroke-width="3" stroke-linejoin="round" />
+    <path d="M21 33 28.5 21.5l4.5 6 5-8.5L47 33Z" fill="#fff" />
+    <circle cx="42" cy="14" r="3" fill="#fff" />
+  </g>
+</svg>

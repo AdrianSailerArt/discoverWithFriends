@@ -80,7 +80,7 @@ function switchMode(m: 'signin' | 'signup') {
 <template>
   <div class="wrap">
     <header>
-      <h1>🧭 Tripboard</h1>
+      <h1><AppLogo :size="56" wordmark /></h1>
       <p class="muted">Sammelt eure Reiseideen gemeinsam auf einer Karte.</p>
     </header>
 

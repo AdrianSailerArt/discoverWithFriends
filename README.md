@@ -1,4 +1,4 @@
-# Tripboard
+# discoverWithFriends
 
 Reiseideen gemeinsam auf einer Karte sammeln, bewerten und (bald) zu einer Tour mit Übernachtungsvorschlägen machen.
 
@@ -14,7 +14,7 @@ bun --bun nuxt dev
 Mit Supabase registrieren sich alle per E-Mail und Passwort. Einladungslinks führen nach der
 Registrierung bzw. Anmeldung direkt in die Reise.
 
-Ohne Keys läuft die App im **Demo-Modus** (lokal auch per Launch-Konfiguration `tripboard-demo` auf Port 3001) (ohne Login): Alles liegt im `localStorage` des Browsers, und über das
+Ohne Keys läuft die App im **Demo-Modus** (lokal auch per Launch-Konfiguration `demo` auf Port 3001) (ohne Login): Alles liegt im `localStorage` des Browsers, und über das
 „Demo“-Menü oben rechts kann man zwischen Personen wechseln, um Abstimmungen zu testen.
 
 ## Supabase einrichten

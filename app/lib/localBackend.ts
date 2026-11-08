@@ -19,6 +19,7 @@ interface Db {
   files: BookingFile[]
 }
 
+// Storage keys keep the old app name so existing demo data survives the rename.
 const DB_KEY = 'tripboard:demo-db'
 const USER_KEY = 'tripboard:demo-user'
 const LOCAL_EVENT = 'tripboard:demo-change'

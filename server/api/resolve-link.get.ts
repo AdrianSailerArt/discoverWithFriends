@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
 
   let current = url
   for (let hop = 0; hop < 5; hop++) {
-    const res = await fetch(current, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 Tripboard' } })
+    const res = await fetch(current, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 discoverWithFriends' } })
     const location = res.headers.get('location')
     if (!location || res.status < 300 || res.status >= 400) break
     const next = new URL(location, current).href

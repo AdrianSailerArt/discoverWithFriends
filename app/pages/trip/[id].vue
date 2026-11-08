@@ -18,10 +18,20 @@ const mapRef = ref<{
   fitRoute(): void
 }>()
 
-// Sidebar tab
+// Sidebar tab – kept in the URL (?tab=…) so reloads and shared links open the same view
 type Tab = 'today' | 'ideas' | 'route' | 'bookings' | 'packing' | 'costs'
-const tab = ref<Tab>('ideas')
+const TABS: Tab[] = ['today', 'ideas', 'route', 'bookings', 'packing', 'costs']
+const isTab = (v: unknown): v is Tab => typeof v === 'string' && (TABS as string[]).includes(v)
+const tabFromUrl = isTab(route.query.tab) ? route.query.tab : null
+const tab = ref<Tab>(tabFromUrl ?? 'ideas')
+function syncUrl(t: Tab) {
+  // history.replaceState instead of the router: a query change would remount the page (page-key = fullPath)
+  const url = new URL(location.href)
+  url.searchParams.set('tab', t)
+  history.replaceState(history.state, '', url)
+}
 watch(tab, async (t) => {
+  syncUrl(t)
   if (t === 'route') {
     await nextTick()
     mapRef.value?.fitRoute()
@@ -51,33 +61,64 @@ function showView(v: MobileView) {
   mobileView.value = v
   if (v !== 'map') tab.value = v
 }
-/** mobile: Buchungen / Packliste / Kosten live behind "Mehr" */
-const moreOpen = ref(false)
-const MORE_VIEWS: { view: Tab; icon: string; label: string }[] = [
-  { view: 'bookings', icon: '🛏️', label: 'Buchungen' },
-  { view: 'packing', icon: '🧳', label: 'Packliste' },
-  { view: 'costs', icon: '💶', label: 'Kosten' },
-]
-const inMore = computed(() => MORE_VIEWS.some((m) => m.view === mobileView.value))
 function openTab(t: Tab) {
   tab.value = t
   if (isMobile.value) showView(t)
 }
 
-// While the trip is on, open on "Heute"
-const traveling = computed(() => {
+// --- trip phase decides what matters most -------------------------------------
+const phase = computed(() => {
   const r = data.value ? tripRange(data.value) : null
-  return !!r && phaseOf(r, todayIso()) === 'during'
+  return r ? phaseOf(r, todayIso()) : 'before'
 })
+const traveling = computed(() => phase.value === 'during')
+const packOpen = computed(() => (data.value?.packing ?? []).filter((p) => !p.packed).length)
+
+interface NavItem {
+  id: Tab
+  icon: string
+  label: string
+  badge?: string
+}
+/** All views, ordered by what's most useful right now: planning → on the road → afterwards */
+const navItems = computed<NavItem[]>(() => {
+  const d = data.value
+  const items: Record<Tab, NavItem> = {
+    today: { id: 'today', icon: '📅', label: traveling.value ? 'Heute' : 'Tage' },
+    ideas: { id: 'ideas', icon: '💡', label: 'Ideen', badge: String(ideas.value.length) },
+    route: { id: 'route', icon: '🧭', label: 'Route', badge: d?.route ? `${d.route.plan.days.length} T` : undefined },
+    bookings: { id: 'bookings', icon: '🛏️', label: 'Buchungen', badge: d?.bookings?.length ? String(d.bookings.length) : undefined },
+    packing: { id: 'packing', icon: '🧳', label: 'Packliste', badge: d?.packing?.length ? (packOpen.value ? `${packOpen.value} offen` : '✓') : undefined },
+    costs: { id: 'costs', icon: '💶', label: 'Kosten' },
+  }
+  const order: Record<typeof phase.value, Tab[]> = {
+    before: ['ideas', 'route', 'bookings', 'packing', 'today', 'costs'],
+    during: ['today', 'bookings', 'costs', 'ideas', 'route', 'packing'],
+    after: ['costs', 'today', 'ideas', 'route', 'bookings', 'packing'],
+  }
+  return order[phase.value].map((t) => items[t])
+})
+/** mobile: map + the three most relevant views in the bar, the rest behind "Mehr" */
+const primaryNav = computed(() => navItems.value.slice(0, 3))
+const moreNav = computed(() => navItems.value.slice(3))
+const moreOpen = ref(false)
+const activeMore = computed(() => moreNav.value.find((m) => m.id === mobileView.value) ?? null)
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') moreOpen.value = false
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+// First load: open the view from the URL, else the most useful one for the trip phase
 const stopInitialTab = watch(data, (d) => {
   if (!d) return
-  if (traveling.value) {
-    tab.value = 'today'
-    if (isMobile.value) mobileView.value = 'today'
-  }
+  const t = tabFromUrl ?? navItems.value[0]!.id
+  tab.value = t
+  syncUrl(t)
+  if (isMobile.value && (tabFromUrl || traveling.value)) mobileView.value = t
   stopInitialTab()
 })
-const packOpen = computed(() => (data.value?.packing ?? []).filter((p) => !p.packed).length)
+
 /** Fly to a spot; on mobile switch to the map first. */
 async function showOnMap(lng: number, lat: number, zoom?: number) {
   if (isMobile.value) mobileView.value = 'map'
@@ -85,7 +126,7 @@ async function showOnMap(lng: number, lat: number, zoom?: number) {
   mapRef.value?.flyTo(lng, lat, zoom)
 }
 
-useHead(() => ({ title: data.value ? `${data.value.trip.name} · Tripboard` : 'Tripboard' }))
+useHead(() => ({ title: data.value ? `${data.value.trip.name} · discoverWithFriends` : 'discoverWithFriends' }))
 
 // --- derived data ---------------------------------------------------------
 const members = computed(() => data.value?.members ?? [])
@@ -314,7 +355,9 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 
   <div v-else class="trip" :class="isMobile ? `mobile m-${mobileView}` : ''">
     <header class="top">
-      <NuxtLink to="/" class="home" aria-label="Alle Reisen">🧭</NuxtLink>
+      <NuxtLink to="/" class="home" aria-label="Alle Reisen" title="Alle Reisen">
+        <span class="home-arrow">‹</span><AppLogo :size="30" />
+      </NuxtLink>
       <div class="title">
         <h1>{{ data.trip.name }}</h1>
         <span class="muted">
@@ -394,24 +437,18 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
       </section>
 
       <aside class="side">
-        <nav v-if="!draft" class="tabs" role="tablist">
-          <button role="tab" :aria-selected="tab === 'today'" :class="{ active: tab === 'today' }" @click="tab = 'today'">
-            📅 {{ traveling ? 'Heute' : 'Tage' }}
-          </button>
-          <button role="tab" :aria-selected="tab === 'ideas'" :class="{ active: tab === 'ideas' }" @click="tab = 'ideas'">
-            💡 Ideen <span class="muted">{{ ideas.length }}</span>
-          </button>
-          <button role="tab" :aria-selected="tab === 'route'" :class="{ active: tab === 'route' }" @click="tab = 'route'">
-            🗺️ Route <span v-if="data.route" class="muted">{{ data.route.plan.days.length }} T</span>
-          </button>
-          <button role="tab" :aria-selected="tab === 'bookings'" :class="{ active: tab === 'bookings' }" @click="tab = 'bookings'">
-            🛏️ Buchungen <span v-if="data.bookings?.length" class="muted">{{ data.bookings.length }}</span>
-          </button>
-          <button role="tab" :aria-selected="tab === 'packing'" :class="{ active: tab === 'packing' }" @click="tab = 'packing'">
-            🧳 Packliste <span v-if="data.packing?.length" class="muted">{{ packOpen || '✓' }}</span>
-          </button>
-          <button role="tab" :aria-selected="tab === 'costs'" :class="{ active: tab === 'costs' }" @click="tab = 'costs'">
-            💶 Kosten
+        <nav v-if="!draft" class="tabs" role="tablist" aria-label="Bereiche">
+          <button
+            v-for="n in navItems"
+            :key="n.id"
+            role="tab"
+            :aria-selected="tab === n.id"
+            :class="{ active: tab === n.id }"
+            @click="tab = n.id"
+          >
+            <span class="tab-icon">{{ n.icon }}</span>
+            <span class="tab-label">{{ n.label }}</span>
+            <span class="tab-badge">{{ n.badge ?? '' }}</span>
           </button>
         </nav>
 
@@ -564,33 +601,39 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 
     <!-- mobile bottom navigation -->
     <div v-if="isMobile && moreOpen" class="more-backdrop" @click="moreOpen = false" />
-    <div v-if="isMobile && moreOpen" class="more card" role="menu">
-      <button v-for="m in MORE_VIEWS" :key="m.view" role="menuitem" :class="{ active: mobileView === m.view }" @click="showView(m.view)">
+    <div v-if="isMobile && moreOpen" id="more-menu" class="more card" role="menu">
+      <button
+        v-for="m in moreNav"
+        :key="m.id"
+        role="menuitem"
+        :class="{ active: mobileView === m.id }"
+        @click="showView(m.id)"
+      >
         <span class="mnav-icon">{{ m.icon }}</span>{{ m.label }}
-        <small v-if="m.view === 'packing' && data.packing?.length" class="muted">{{ packOpen ? `${packOpen} offen` : 'alles gepackt' }}</small>
-        <small v-else-if="m.view === 'bookings' && data.bookings?.length" class="muted">{{ data.bookings.length }}</small>
+        <small v-if="m.badge" class="muted">{{ m.badge }}</small>
       </button>
     </div>
     <nav v-if="isMobile" class="mnav" aria-label="Ansicht">
-      <button :class="{ active: mobileView === 'map' }" :aria-pressed="mobileView === 'map'" @click="showView('map')">
+      <button :class="{ active: mobileView === 'map' }" :aria-current="mobileView === 'map' ? 'page' : undefined" @click="showView('map')">
         <span class="mnav-icon">🗺️</span>Karte
       </button>
-      <button :class="{ active: mobileView === 'today' }" :aria-pressed="mobileView === 'today'" @click="showView('today')">
-        <span class="mnav-icon">📅</span>{{ traveling ? 'Heute' : 'Tage' }}
-      </button>
-      <button :class="{ active: mobileView === 'ideas' }" :aria-pressed="mobileView === 'ideas'" @click="showView('ideas')">
-        <span class="mnav-icon">💡</span>Ideen <small>{{ ideas.length }}</small>
-      </button>
-      <button :class="{ active: mobileView === 'route' }" :aria-pressed="mobileView === 'route'" @click="showView('route')">
-        <span class="mnav-icon">🧭</span>Route<small v-if="data.route">{{ data.route.plan.days.length }} T</small>
+      <button
+        v-for="n in primaryNav"
+        :key="n.id"
+        :class="{ active: mobileView === n.id }"
+        :aria-current="mobileView === n.id ? 'page' : undefined"
+        @click="showView(n.id)"
+      >
+        <span class="mnav-icon">{{ n.icon }}</span>{{ n.label }}<small v-if="n.badge">{{ n.badge }}</small>
       </button>
       <button
-        :class="{ active: inMore || moreOpen }"
+        :class="{ active: !!activeMore || moreOpen }"
         :aria-expanded="moreOpen"
         aria-haspopup="menu"
+        aria-controls="more-menu"
         @click="moreOpen = !moreOpen"
       >
-        <span class="mnav-icon">{{ inMore ? MORE_VIEWS.find((m) => m.view === mobileView)!.icon : '☰' }}</span>{{ inMore ? MORE_VIEWS.find((m) => m.view === mobileView)!.label : 'Mehr' }}
+        <span class="mnav-icon">{{ activeMore?.icon ?? '☰' }}</span>{{ activeMore?.label ?? 'Mehr' }}
       </button>
     </nav>
   </div>
@@ -620,8 +663,23 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
   flex-wrap: wrap;
 }
 .home {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px 2px 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
   text-decoration: none;
+  border-right: 1px solid var(--border);
+}
+.home:hover {
+  color: var(--accent);
+}
+.home-arrow {
+  font-size: 1.6rem;
+  line-height: 1;
+  margin-top: -3px;
 }
 .title {
   display: grid;
@@ -690,33 +748,54 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
   width: 100%;
 }
 .tabs {
+  /* stays visible while the panel scrolls */
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  margin: -16px -16px 0;
+  flex: none;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  border: 1px solid var(--line);
-  background: var(--line);
+  grid-template-columns: repeat(6, 1fr);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 .tabs button {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
   border: 0;
-  background: var(--surface);
-  padding: 0.55rem;
+  background: none;
+  padding: 8px 2px 6px;
   cursor: pointer;
   color: var(--muted);
   font-weight: 700;
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 -3px 0 transparent;
+  transition: color 0.15s, box-shadow 0.15s;
+}
+.tabs button:hover {
+  color: var(--text);
+  background: var(--accent-soft);
 }
 .tabs button.active {
-  background: var(--accent);
-  color: var(--accent-text);
+  color: var(--accent);
+  box-shadow: inset 0 -3px 0 var(--accent);
 }
-.tabs button.active .muted {
-  color: inherit;
-  opacity: 0.8;
+.tab-icon {
+  font-size: 1.15rem;
+  line-height: 1.2;
 }
-.tabs .muted {
-  font-size: 0.8rem;
-  font-weight: 400;
+.tab-label {
+  white-space: nowrap;
+}
+.tab-badge {
+  min-height: 1em;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0.85;
 }
 .filters {
   display: grid;
@@ -918,6 +997,12 @@ const formatHours = (min: number) => `${(min / 60).toLocaleString('de-DE', { max
 .mnav button.active {
   color: var(--accent);
   box-shadow: inset 0 3px 0 var(--accent);
+}
+.mnav button small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 800px) {

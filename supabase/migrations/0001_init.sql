@@ -1,4 +1,4 @@
--- Tripboard: initial schema
+-- discoverWithFriends: initial schema
 -- Run in the Supabase SQL editor (or via `supabase db push`).
 -- Requires: Authentication -> Providers -> "Anonymous sign-ins" enabled.
 

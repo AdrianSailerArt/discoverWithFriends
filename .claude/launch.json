@@ -2,13 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "tripboard",
+      "name": "discoverWithFriends",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["--bun", "nuxt", "dev", "--port", "3000"],
       "port": 3000
     },
     {
-      "name": "tripboard-demo",
+      "name": "demo",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["--bun", "nuxt", "dev", "--port", "3001"],
       "port": 3001,

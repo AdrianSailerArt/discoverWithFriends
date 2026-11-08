@@ -10,7 +10,7 @@ const BASE: Record<Profile, string> = {
   'cycling-regular': 'https://routing.openstreetmap.de/routed-bike',
   'foot-hiking': 'https://routing.openstreetmap.de/routed-foot',
 }
-const HEADERS = { 'User-Agent': 'Tripboard/0.1 (group trip planner)' }
+const HEADERS = { 'User-Agent': 'discoverWithFriends/0.1 (group trip planner)' }
 
 const coords = (points: LngLat[]) => points.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(';')
 

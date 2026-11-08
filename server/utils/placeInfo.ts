@@ -1,7 +1,7 @@
 import type { PlaceInfo } from '#shared/placeInfo'
 import { haversineKm } from './ors'
 
-const UA = 'Tripboard/0.1 (group trip planner)'
+const UA = 'discoverWithFriends/0.1 (group trip planner)'
 const NOMINATIM = 'https://nominatim.openstreetmap.org'
 
 // Nominatim usage policy: max. 1 request per second → serialise calls per server instance.
